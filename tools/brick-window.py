@@ -51,29 +51,36 @@ def qnum(evdev):
 
 
 # ---------------------------------------------------------------- skin layout
-# Device units (~0.155 mm); the window is drawn at SKIN_W x SKIN_H * scale.
-SKIN_W, SKIN_H = 560, 830
-BODY = (20, 30, 500, 780, 42)           # x, y, w, h, corner radius
-BEZEL = (42, 56, 456, 362, 16)
-SCREEN = (60, 74, 420, 315)             # 4:3, the 1024x768 panel
-DPAD_C, DPAD_ARM, DPAD_LEN = (140, 575), 52, 160
-ABXY_C, ABXY_OFF, ABXY_R = (400, 575), 56, 28
+# Device units: 1 unit ~ 0.15 mm, proportions taken from the device's
+# front/side/top views. The window is SKIN_W x SKIN_H * scale.
+SKIN_W, SKIN_H = 578, 840
+BODY = (30, 32, 518, 787)               # x, y, w, h
+BODY_R_TOP, BODY_R_BOT = 12, 30         # small top corners, rounder bottom
+GLASS = (35, 37, 508, 400)              # black glass over the whole upper half
+SCREEN = (46, 54, 486, 364)             # 4:3 active area (1024x768 panel)
+DPAD_C, DPAD_ARM, DPAD_LEN = (146, 547), 48, 142
+ABXY_C, ABXY_OFF, ABXY_R = (435, 547), 55, 26
 
 THEMES = {
-    'black': dict(body0=(0.17, 0.18, 0.19), body1=(0.10, 0.105, 0.11), edge=(0.30, 0.31, 0.33),
-                  btn=(0.24, 0.25, 0.27), btn_hi=(0.36, 0.37, 0.40), btn_dn=(0.12, 0.12, 0.13),
-                  label=(0.74, 0.76, 0.79), print=(0.55, 0.57, 0.60), accent=(0.95, 0.35, 0.45)),
-    'grey': dict(body0=(0.56, 0.57, 0.58), body1=(0.44, 0.45, 0.46), edge=(0.66, 0.67, 0.68),
-                 btn=(0.26, 0.27, 0.29), btn_hi=(0.38, 0.39, 0.42), btn_dn=(0.14, 0.14, 0.15),
-                 label=(0.90, 0.91, 0.92), print=(0.20, 0.21, 0.22), accent=(0.95, 0.35, 0.45)),
-    'white': dict(body0=(0.94, 0.94, 0.93), body1=(0.84, 0.84, 0.83), edge=(0.98, 0.98, 0.98),
-                  btn=(0.30, 0.31, 0.33), btn_hi=(0.42, 0.43, 0.46), btn_dn=(0.16, 0.16, 0.17),
-                  label=(0.92, 0.92, 0.93), print=(0.35, 0.36, 0.38), accent=(0.95, 0.35, 0.45)),
+    # body, glass, buttons, embossed letters, printed text, pill (F1/F2), power button
+    'black': dict(body0=(0.135, 0.135, 0.14), body1=(0.095, 0.095, 0.10), rim=(0.22, 0.22, 0.23),
+                  glass=(0.03, 0.03, 0.035), btn=(0.11, 0.11, 0.115), btn_hi=(0.19, 0.19, 0.20),
+                  btn_dn=(0.26, 0.26, 0.28), emboss=(0.30, 0.30, 0.32), print=(0.36, 0.36, 0.38),
+                  pill=(0.62, 0.62, 0.63), power=(0.50, 0.80, 0.70), accent=(0.95, 0.35, 0.45)),
+    'grey': dict(body0=(0.50, 0.51, 0.52), body1=(0.42, 0.43, 0.44), rim=(0.60, 0.61, 0.62),
+                 glass=(0.03, 0.03, 0.035), btn=(0.30, 0.30, 0.32), btn_hi=(0.40, 0.40, 0.42),
+                 btn_dn=(0.18, 0.18, 0.19), emboss=(0.50, 0.50, 0.52), print=(0.26, 0.26, 0.28),
+                 pill=(0.82, 0.82, 0.83), power=(0.50, 0.80, 0.70), accent=(0.95, 0.35, 0.45)),
+    'white': dict(body0=(0.93, 0.93, 0.92), body1=(0.85, 0.85, 0.84), rim=(0.99, 0.99, 0.99),
+                  glass=(0.03, 0.03, 0.035), btn=(0.86, 0.86, 0.85), btn_hi=(0.97, 0.97, 0.96),
+                  btn_dn=(0.70, 0.70, 0.69), emboss=(0.62, 0.62, 0.63), print=(0.60, 0.60, 0.61),
+                  pill=(0.55, 0.55, 0.57), power=(0.50, 0.80, 0.70), accent=(0.95, 0.35, 0.45)),
 }
 
 
 def build_buttons():
-    """name -> (kind, geometry, label). kinds: circle(cx,cy,r) pill/rect(x,y,w,h,r) dpad(x,y,w,h,dir)."""
+    """name -> (kind, geometry, label).
+    kinds: circle (cx, cy, r) | pill/shoulder/side (x, y, w, h, r) | dpad (x, y, w, h)."""
     b = {}
     cx, cy = DPAD_C
     a, l = DPAD_ARM, DPAD_LEN / 2
@@ -86,25 +93,39 @@ def build_buttons():
     b['A'] = ('circle', (ax + ABXY_OFF, ay, ABXY_R), 'A')
     b['B'] = ('circle', (ax, ay + ABXY_OFF, ABXY_R), 'B')
     b['Y'] = ('circle', (ax - ABXY_OFF, ay, ABXY_R), 'Y')
-    b['MENU'] = ('circle', (270, 462, 18), 'MENU')
-    b['F1'] = ('circle', (232, 640, 12), 'F1')
-    b['F2'] = ('circle', (308, 640, 12), 'F2')
-    b['SELECT'] = ('pill', (190, 700, 60, 20, 10), 'SELECT')
-    b['START'] = ('pill', (290, 700, 60, 20, 10), 'START')
-    # shoulder buttons: tabs on the top edge, behind the body
-    b['L2'] = ('shoulder', (44, 12, 88, 30, 9), 'L2')
-    b['L'] = ('shoulder', (140, 16, 88, 26, 9), 'L')
-    b['R'] = ('shoulder', (312, 16, 88, 26, 9), 'R')
-    b['R2'] = ('shoulder', (408, 12, 88, 30, 9), 'R2')
-    # right edge: power, volume
-    b['POWER'] = ('side', (512, 110, 16, 56, 5), 'POWER')
-    b['VOL+'] = ('side', (512, 200, 16, 50, 5), '+')
-    b['VOL-'] = ('side', (512, 256, 16, 50, 5), '−')
+    # the two small pills between d-pad and face buttons
+    b['F1'] = ('pill', (227, 478, 48, 15, 7.5), 'F1')
+    b['F2'] = ('pill', (303, 478, 48, 15, 7.5), 'F2')
+    # bottom row: menu, select, start
+    b['MENU'] = ('circle', (218, 757, 17), 'MENU')
+    b['SELECT'] = ('circle', (290, 757, 17), 'SELECT')
+    b['START'] = ('circle', (362, 757, 17), 'START')
+    # top edge, left to right: L1 L2 [USB-C] R2 R1 (tabs behind the body)
+    b['L'] = ('shoulder', (43, 18, 118, 30, 8), 'L1')
+    b['L2'] = ('shoulder', (164, 18, 72, 30, 8), 'L2')
+    b['R2'] = ('shoulder', (342, 18, 72, 30, 8), 'R2')
+    b['R'] = ('shoulder', (417, 18, 118, 30, 8), 'R1')
+    # left edge: volume; right edge: power (the slider above it is decorative)
+    b['VOL+'] = ('side', (20, 82, 14, 50, 6), '+')
+    b['VOL-'] = ('side', (20, 157, 14, 55, 6), '−')
+    b['POWER'] = ('side', (544, 282, 14, 50, 6), 'POWER')
     return b
 
 
 BUTTONS = build_buttons()
-CLOSE_BTN = (488, 52, 11)  # top-right corner of the body (shown on hover)
+SLIDER = (544, 162, 12, 70, 6)          # right edge, decorative
+USB = (262, 22, 54, 26)                 # top edge, between L2 and R2
+CLOSE_BTN = (528, 52, 11)               # top-right of the glass (shown on hover)
+
+
+def rrect4(cr, x, y, w, h, rt, rb):
+    """Rounded rectangle with separate top / bottom corner radii."""
+    cr.new_sub_path()
+    cr.arc(x + w - rt, y + rt, rt, -math.pi / 2, 0)
+    cr.arc(x + w - rb, y + h - rb, rb, 0, math.pi / 2)
+    cr.arc(x + rb, y + h - rb, rb, math.pi / 2, math.pi)
+    cr.arc(x + rt, y + rt, rt, math.pi, 3 * math.pi / 2)
+    cr.close_path()
 
 
 def rrect(cr, x, y, w, h, r):
@@ -455,7 +476,7 @@ class BrickWindow(Gtk.Window):
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
         cr.scale(self.scale, self.scale)
-        self.draw_shoulders_and_sides(cr)
+        self.draw_edge_buttons(cr)
         if self.skin_cache is None:
             self.skin_cache = self.render_body()
         cr.save()
@@ -467,6 +488,7 @@ class BrickWindow(Gtk.Window):
         self.draw_controls(cr)
         if self.hover_close:
             x, y, r = CLOSE_BTN
+            cr.new_path()
             cr.arc(x, y, r, 0, 2 * math.pi)
             cr.set_source_rgba(0.85, 0.25, 0.25, 0.95)
             cr.fill()
@@ -484,63 +506,94 @@ class BrickWindow(Gtk.Window):
         cr = cairo.Context(surf)
         cr.scale(s, s)
         t = self.theme
-        x, y, w, h, r = BODY
-        # soft shadow
+        x, y, w, h = BODY
+        # soft drop shadow
         if self.transparent:
-            for i in range(10, 0, -1):
-                rrect(cr, x - i * 0.6 + 2, y + 4 - i * 0.3, w + i * 1.2, h + i * 1.2, r + i)
-                cr.set_source_rgba(0, 0, 0, 0.022)
+            for i in range(12, 0, -1):
+                rrect4(cr, x - i * 0.5, y + 5 - i * 0.2, w + i, h + i * 0.9, BODY_R_TOP + i, BODY_R_BOT + i)
+                cr.set_source_rgba(0, 0, 0, 0.02)
                 cr.fill()
-        # body with a vertical gradient and a light rim
+        # matte body: gentle vertical gradient, thin lighter rim
         g = cairo.LinearGradient(0, y, 0, y + h)
         g.add_color_stop_rgb(0, *t['body0'])
         g.add_color_stop_rgb(1, *t['body1'])
-        rrect(cr, x, y, w, h, r)
+        rrect4(cr, x, y, w, h, BODY_R_TOP, BODY_R_BOT)
         cr.set_source(g)
         cr.fill_preserve()
-        cr.set_source_rgb(*t['edge'])
-        cr.set_line_width(2)
-        cr.stroke()
-        rrect(cr, x + 5, y + 5, w - 10, h - 10, r - 5)
-        cr.set_source_rgba(1, 1, 1, 0.035)
+        cr.set_source_rgb(*t['rim'])
         cr.set_line_width(1.5)
         cr.stroke()
-        # screen bezel (glass)
-        bx, by, bw, bh, br = BEZEL
-        rrect(cr, bx, by, bw, bh, br)
-        cr.set_source_rgb(0.035, 0.035, 0.04)
+        # glass panel over the upper half, with a faint reflection
+        gx, gy, gw, gh = GLASS
+        rrect4(cr, gx, gy, gw, gh, BODY_R_TOP - 4, 3)
+        cr.set_source_rgb(*t['glass'])
         cr.fill()
-        gl = cairo.LinearGradient(bx, by, bx + bw * 0.6, by + bh)
-        gl.add_color_stop_rgba(0, 1, 1, 1, 0.06)
-        gl.add_color_stop_rgba(0.5, 1, 1, 1, 0.0)
-        rrect(cr, bx, by, bw, bh, br)
+        gl = cairo.LinearGradient(gx, gy, gx + gw * 0.7, gy + gh)
+        gl.add_color_stop_rgba(0, 1, 1, 1, 0.07)
+        gl.add_color_stop_rgba(0.45, 1, 1, 1, 0.0)
+        rrect4(cr, gx, gy, gw, gh, BODY_R_TOP - 4, 3)
         cr.set_source(gl)
         cr.fill()
-        # power LED and printed model name under the screen
-        cr.arc(bx + 14, by + bh + 22, 3, 0, 2 * math.pi)
-        cr.set_source_rgba(0.25, 0.85, 0.45, 0.9)
-        cr.fill()
+        # small print under the glass
         cr.set_source_rgb(*t['print'])
-        cr.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        cr.set_font_size(13)
-        self.text(cr, 'BRICK', bx + bw - 40, by + bh + 26, center=True)
-        # d-pad and face-button wells
-        cx, cy = DPAD_C
-        cr.arc(cx, cy, DPAD_LEN / 2 + 6, 0, 2 * math.pi)
-        cr.set_source_rgba(0, 0, 0, 0.16)
-        cr.fill()
-        ax, ay = ABXY_C
-        cr.arc(ax, ay, ABXY_OFF + ABXY_R + 4, 0, 2 * math.pi)
-        cr.set_source_rgba(0, 0, 0, 0.16)
-        cr.fill()
-        # speaker grille
-        for i in range(7):
+        cr.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(10)
+        cx = 48
+        for ch in 'BRICK':
+            cr.move_to(cx, gy + gh + 19)
+            cr.show_text(ch)
+            cx += cr.text_extents(ch).x_advance + 3
+        # speaker grilles (bottom corners)
+        for gx0 in (96, 432):
             for j in range(3):
+                for i in range(9):
+                    if j == 1 and i in (0, 8):
+                        continue
+                    cr.new_sub_path()
+                    cr.arc(gx0 + i * 6.5, 733 + j * 6, 1.5, 0, 2 * math.pi)
+        cr.set_source_rgba(0, 0, 0, 0.55)
+        cr.fill()
+        # wells under the buttons (slight recess)
+        for name, (kind, geo, _) in BUTTONS.items():
+            if kind == 'circle':
                 cr.new_sub_path()
-                cr.arc(222 + i * 16 + (8 if j % 2 else 0), 752 + j * 13, 2.6, 0, 2 * math.pi)
-        cr.set_source_rgba(0, 0, 0, 0.45)
+                cr.arc(geo[0], geo[1], geo[2] + 3, 0, 2 * math.pi)
+        cr.set_source_rgba(0, 0, 0, 0.30)
+        cr.fill()
+        cx, cy = DPAD_C
+        a, l = DPAD_ARM + 6, DPAD_LEN / 2 + 3
+        cr.new_path()
+        self.cross(cr, cx, cy, a, l, 9)
+        cr.set_source_rgba(0, 0, 0, 0.30)
         cr.fill()
         return surf
+
+    @staticmethod
+    def cross(cr, cx, cy, a, l, r):
+        """Plus-shaped outline (one path, rounded arm ends)."""
+        hw = a / 2
+        pts = [(cx - hw, cy - l), (cx + hw, cy - l), (cx + hw, cy - hw), (cx + l, cy - hw),
+               (cx + l, cy + hw), (cx + hw, cy + hw), (cx + hw, cy + l), (cx - hw, cy + l),
+               (cx - hw, cy + hw), (cx - l, cy + hw), (cx - l, cy - hw), (cx - hw, cy - hw)]
+        outer = {0, 1, 3, 4, 6, 7, 9, 10}   # corners at arm ends get rounded
+        n = len(pts)
+        cr.new_sub_path()
+        for i in range(n):
+            p0, p1, p2 = pts[i - 1], pts[i], pts[(i + 1) % n]
+            rr = r if i in outer else 3
+            # arc_to-like rounding between edges p0->p1 and p1->p2
+            d0 = ((p1[0] - p0[0]), (p1[1] - p0[1]))
+            d1 = ((p2[0] - p1[0]), (p2[1] - p1[1]))
+            l0 = math.hypot(*d0) or 1
+            l1 = math.hypot(*d1) or 1
+            a_ = (p1[0] - d0[0] / l0 * rr, p1[1] - d0[1] / l0 * rr)
+            b_ = (p1[0] + d1[0] / l1 * rr, p1[1] + d1[1] / l1 * rr)
+            if i == 0:
+                cr.move_to(*a_)
+            else:
+                cr.line_to(*a_)
+            cr.curve_to(p1[0], p1[1], p1[0], p1[1], *b_)
+        cr.close_path()
 
     def text(self, cr, s, x, y, center=True):
         ext = cr.text_extents(s)
@@ -550,28 +603,47 @@ class BrickWindow(Gtk.Window):
     def is_down(self, name):
         return name in self.pressed or name in self.latched
 
-    def btn_color(self, name):
-        t = self.theme
-        return t['btn_dn'] if self.is_down(name) else t['btn']
+    def latch_mark(self, cr, x, y):
+        cr.new_path()
+        cr.arc(x, y, 3.5, 0, 2 * math.pi)
+        cr.set_source_rgb(*self.theme['accent'])
+        cr.fill()
 
-    def draw_shoulders_and_sides(self, cr):
+    def draw_edge_buttons(self, cr):
+        """Shoulder tabs, side buttons, slider, USB port: drawn behind the body."""
         t = self.theme
-        for name in ('L2', 'L', 'R', 'R2', 'POWER', 'VOL+', 'VOL-'):
+        for name in ('L', 'L2', 'R2', 'R', 'VOL+', 'VOL-', 'POWER'):
             kind, (x, y, w, h, r), label = BUTTONS[name]
             dn = self.is_down(name)
             if kind == 'shoulder':
-                yy = y + (4 if dn else 0)
-                rrect(cr, x, yy, w, h + 20, r)
-            else:
-                xx = x - (4 if dn else 0)
-                rrect(cr, xx - 10, y, w + 10, h, r)
-            cr.set_source_rgb(*(t['btn_dn'] if dn else t['btn']))
+                rrect(cr, x, y + (5 if dn else 0), w, h + 20, r)
+            elif x < BODY[0]:     # left edge
+                rrect(cr, x + (4 if dn else 0), y, w + 12, h, r)
+            else:                 # right edge
+                rrect(cr, x - 12 - (4 if dn else 0), y, w + 12, h, r)
+            col = t['power'] if name == 'POWER' else (t['btn_dn'] if dn else t['btn'])
+            if name == 'POWER' and dn:
+                col = tuple(c * 0.75 for c in col)
+            cr.set_source_rgb(*col)
             cr.fill_preserve()
-            cr.set_source_rgba(1, 1, 1, 0.08)
+            cr.set_source_rgba(1, 1, 1, 0.10)
             cr.set_line_width(1)
             cr.stroke()
             if name in self.latched:
-                self.latch_mark(cr, x + w / 2, y + 8 if kind == 'shoulder' else y + h / 2)
+                self.latch_mark(cr, x + w / 2, y + 7 if kind == 'shoulder' else y + h / 2)
+        # decorative slider (right edge) and USB-C port (top edge)
+        x, y, w, h, r = SLIDER
+        rrect(cr, x - 12, y, w + 12, h, r)
+        cr.set_source_rgb(*t['btn'])
+        cr.fill()
+        ux, uy, uw, uh = USB
+        cr.rectangle(ux, uy, uw, uh + 20)
+        cr.set_source_rgb(*t['body1'])
+        cr.fill()
+        rrect(cr, ux + 10, uy + 7, uw - 20, 9, 4.5)
+        cr.set_source_rgb(0.55, 0.55, 0.57)
+        cr.set_line_width(1.6)
+        cr.stroke()
 
     def draw_screen(self, cr):
         x, y, w, h = SCREEN
@@ -594,113 +666,116 @@ class BrickWindow(Gtk.Window):
             self.text(cr, self.message, x + w / 2, y + h / 2)
         cr.restore()
 
-    def latch_mark(self, cr, x, y):
-        cr.arc(x, y, 3.5, 0, 2 * math.pi)
-        cr.set_source_rgb(*self.theme['accent'])
-        cr.fill()
+    def button_fill(self, cr, x, y, r, name):
+        """Round button: soft-domed fill; returns the vertical press offset."""
+        t = self.theme
+        dn = self.is_down(name)
+        off = 1.5 if dn else 0
+        base = t['btn_dn'] if dn else t['btn']
+        g = cairo.RadialGradient(x - r * 0.35, y - r * 0.45 + off, r * 0.1, x, y + off, r)
+        g.add_color_stop_rgb(0, *(t['btn_dn'] if dn else t['btn_hi']))
+        g.add_color_stop_rgb(1, *base)
+        cr.new_path()
+        cr.arc(x, y + off, r, 0, 2 * math.pi)
+        cr.set_source(g)
+        cr.fill_preserve()
+        cr.set_source_rgba(1, 1, 1, 0.06)
+        cr.set_line_width(1)
+        cr.stroke()
+        return off
 
     def draw_controls(self, cr):
         t = self.theme
-        cr.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-        # shoulder / side labels on the body edge
-        cr.set_font_size(11)
-        cr.set_source_rgb(*t['print'])
-        for name in ('L2', 'L', 'R', 'R2'):
-            _, (x, y, w, h, r), label = BUTTONS[name]
-            self.text(cr, label, x + w / 2, BODY[1] + 18)
-        # d-pad: one cross, the pressed arm darkened
+        # d-pad: one cross; the pressed arm is lit
         cx, cy = DPAD_C
         a, l = DPAD_ARM, DPAD_LEN / 2
-        cr.new_path()
-        rrect(cr, cx - a / 2, cy - l, a, 2 * l, 8)
-        rrect(cr, cx - l, cy - a / 2, 2 * l, a, 8)
-        cr.set_source_rgb(*t['btn'])
-        cr.set_fill_rule(cairo.FILL_RULE_WINDING)
+        g = cairo.LinearGradient(cx - l, cy - l, cx + l, cy + l)
+        g.add_color_stop_rgb(0, *t['btn_hi'])
+        g.add_color_stop_rgb(1, *t['btn'])
+        self.cross(cr, cx, cy, a, l, 7)
+        cr.set_source(g)
         cr.fill()
         for name, (dx, dy) in (('UP', (0, -1)), ('DOWN', (0, 1)), ('LEFT', (-1, 0)), ('RIGHT', (1, 0))):
             _, (x, y, w, h), _ = BUTTONS[name]
             if self.is_down(name):
-                rrect(cr, x, y, w, h, 7)
+                cr.new_path()
+                rrect(cr, x + 1, y + 1, w - 2, h - 2, 6)
                 cr.set_source_rgb(*t['btn_dn'])
                 cr.fill()
-            # arrow
-            px, py = cx + dx * (l - 20), cy + dy * (l - 20)
-            cr.move_to(px + dx * 7, py + dy * 7)
-            cr.line_to(px - dy * 8 - dx * 4, py - dx * 8 - dy * 4)
-            cr.line_to(px + dy * 8 - dx * 4, py + dx * 8 - dy * 4)
+            # small embossed triangle near the arm end
+            px, py = cx + dx * (l - 16), cy + dy * (l - 16)
+            cr.new_path()
+            cr.move_to(px + dx * 5, py + dy * 5)
+            cr.line_to(px - dy * 6 - dx * 3, py - dx * 6 - dy * 3)
+            cr.line_to(px + dy * 6 - dx * 3, py + dx * 6 - dy * 3)
             cr.close_path()
-            cr.set_source_rgba(*t['label'], 0.55)
+            cr.set_source_rgb(*t['emboss'])
             cr.fill()
             if name in self.latched:
                 self.latch_mark(cr, x + w / 2, y + h / 2)
-        cr.arc(cx, cy, 10, 0, 2 * math.pi)
-        cr.set_source_rgba(0, 0, 0, 0.18)
+        cr.new_path()
+        cr.arc(cx, cy, 11, 0, 2 * math.pi)       # centre dimple
+        cr.set_source_rgba(0, 0, 0, 0.25)
         cr.fill()
-        # round buttons
-        for name in ('X', 'A', 'B', 'Y', 'MENU', 'F1', 'F2'):
+        # face buttons with embossed letters
+        cr.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        for name in ('X', 'A', 'B', 'Y'):
             _, (x, y, r), label = BUTTONS[name]
-            dn = self.is_down(name)
-            if not dn:
-                cr.arc(x, y + 2.5, r, 0, 2 * math.pi)
-                cr.set_source_rgba(0, 0, 0, 0.35)
-                cr.fill()
-            g = cairo.RadialGradient(x - r * 0.3, y - r * 0.4, r * 0.1, x, y, r)
-            base = t['btn_dn'] if dn else t['btn']
-            hi = t['btn_dn'] if dn else t['btn_hi']
-            g.add_color_stop_rgb(0, *hi)
-            g.add_color_stop_rgb(1, *base)
-            cr.arc(x, y + (1.5 if dn else 0), r, 0, 2 * math.pi)
-            cr.set_source(g)
-            cr.fill()
-            cr.set_source_rgb(*t['label'])
-            if name in ('X', 'A', 'B', 'Y'):
-                cr.set_font_size(22)
-                self.text(cr, label, x, y + 8 + (1.5 if dn else 0))
-            elif name == 'MENU':
-                # three-dot logo-free menu mark
-                for k in (-6, 0, 6):
-                    cr.arc(x + k, y + (1.5 if dn else 0), 2.2, 0, 2 * math.pi)
-                    cr.fill()
-                cr.set_source_rgb(*t['print'])
-                cr.set_font_size(10)
-                self.text(cr, 'MENU', x, y + r + 15)
-            else:
-                cr.set_source_rgb(*t['print'])
-                cr.set_font_size(10)
-                self.text(cr, label, x, y + r + 14)
+            off = self.button_fill(cr, x, y, r, name)
+            cr.set_font_size(19)
+            cr.set_source_rgba(1, 1, 1, 0.05)
+            self.text(cr, label, x + 0.8, y + 7.8 + off)
+            cr.set_source_rgb(*t['emboss'])
+            self.text(cr, label, x, y + 7 + off)
             if name in self.latched:
                 self.latch_mark(cr, x + r * 0.7, y - r * 0.7)
-        # select / start
-        for name in ('SELECT', 'START'):
-            _, (x, y, w, h, r), label = BUTTONS[name]
-            dn = self.is_down(name)
-            rrect(cr, x, y + (1.5 if dn else 0), w, h, r)
-            cr.set_source_rgb(*self.btn_color(name))
-            cr.fill()
-            cr.set_source_rgb(*t['print'])
-            cr.set_font_size(10)
-            self.text(cr, label, x + w / 2, y + h + 15)
-            if name in self.latched:
-                self.latch_mark(cr, x + w / 2, y + h / 2)
-        # side labels
-        cr.set_font_size(9)
-        cr.set_source_rgb(*t['print'])
-        for name in ('POWER', 'VOL+', 'VOL-'):
-            _, (x, y, w, h, r), label = BUTTONS[name]
-            cr.save()
-            cr.translate(BODY[0] + BODY[2] - 12, y + h / 2)
-            cr.rotate(math.pi / 2)
-            if name == 'POWER':  # power symbol, drawn (fonts may lack U+23FB)
-                cr.set_line_width(1.4)
-                cr.new_path()
-                cr.arc(0, 0, 4.5, -math.pi / 2 + 0.7, 3 * math.pi / 2 - 0.7)
+        # bottom row: menu (three dots), select (bar), start (triangle)
+        for name in ('MENU', 'SELECT', 'START'):
+            _, (x, y, r), label = BUTTONS[name]
+            off = self.button_fill(cr, x, y, r, name)
+            cr.set_source_rgb(*t['emboss'])
+            cr.set_line_width(1.6)
+            yy = y + off
+            if name == 'MENU':
+                for ddx, ddy in ((0, -4), (-4.2, 3), (4.2, 3)):
+                    cr.new_sub_path()
+                    cr.arc(x + ddx, yy + ddy, 3, 0, 2 * math.pi)
                 cr.stroke()
-                cr.move_to(0, -6)
-                cr.line_to(0, -1)
+            elif name == 'SELECT':
+                cr.new_path()
+                rrect(cr, x - 6, yy - 2.5, 12, 5, 1.5)
                 cr.stroke()
             else:
-                self.text(cr, label, 0, 4)
-            cr.restore()
+                cr.new_path()
+                cr.move_to(x - 3.5, yy - 6)
+                cr.line_to(x + 5.5, yy)
+                cr.line_to(x - 3.5, yy + 6)
+                cr.close_path()
+                cr.stroke()
+            if name in self.latched:
+                self.latch_mark(cr, x + r * 0.7, y - r * 0.7)
+        # F1 / F2 pills (light grey)
+        for name in ('F1', 'F2'):
+            _, (x, y, w, h, r), label = BUTTONS[name]
+            dn = self.is_down(name)
+            off = 1.2 if dn else 0
+            col = t['pill']
+            g = cairo.LinearGradient(0, y, 0, y + h)
+            g.add_color_stop_rgb(0, *(c * (0.8 if dn else 1.12) for c in col))
+            g.add_color_stop_rgb(1, *(c * (0.7 if dn else 0.92) for c in col))
+            cr.new_path()
+            rrect(cr, x, y + off, w, h, r)
+            cr.set_source(g)
+            cr.fill()
+            if name in self.latched:
+                self.latch_mark(cr, x + w / 2, y + h / 2)
+        # labels for the edge buttons, printed on the body next to them
+        cr.select_font_face('Sans', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(9)
+        cr.set_source_rgba(*t['print'], 0.9)
+        for name in ('L', 'L2', 'R2', 'R'):
+            _, (x, y, w, h, r), label = BUTTONS[name]
+            self.text(cr, label, x + w / 2, y + 10 + (5 if self.is_down(name) else 0))
 
 
 def main():
