@@ -9,7 +9,8 @@
     Brick.cmd -Accel tcg            no hypervisor (slow software CPU) - for testing
     Brick.cmd -Gpu virgl            experimental host-GPU GLES (ANGLE/Direct3D)
     Brick.cmd -Reset                factory-reset the internal storage (eMMC)
-    Brick.cmd -Trace                verbose kernel console (early boot messages)
+    Brick.cmd -Trace                verbose kernel console (early boot messages, init steps)
+    Brick.cmd -Cpus 1               number of emulated CPU cores (default 4)
     Brick.cmd -Boot direct          boot the kernel without UEFI firmware
 
   Requires Windows 11 24H2 (26100.3915+) with "Windows Hypervisor Platform"
@@ -23,6 +24,7 @@ param(
     [ValidateSet("sdl", "gtk")] [string]$Display = "sdl",
     [ValidateSet("auto", "edk2", "direct")] [string]$Boot = "auto",
     [switch]$Trace,
+    [int]$Cpus = 4,
     [switch]$Reset
 )
 $ErrorActionPreference = "Stop"
@@ -53,7 +55,7 @@ $parts = "bootloader@mmcblk0p1:env@mmcblk0p2:env-redund@mmcblk0p3:boot@mmcblk0p4
 $cmdline = "console=ttyAMA0 root=/dev/mmcblk0p5 rootwait init=/sbin/init rdinit=/rdinit loglevel=1 " +
            "partitions=$parts cma=64M gpt=1 snd_hda_intel.id=audiocodec " +
            "gpio_mockup.gpio_mockup_ranges=0,384 video=Virtual-1:1024x768 brick.gpu=$Gpu acpi=off"
-if ($Trace) { $cmdline = $cmdline -replace 'loglevel=1', 'loglevel=8 earlycon=pl011,0x09000000' }
+if ($Trace) { $cmdline = $cmdline -replace 'loglevel=1', 'loglevel=8 earlycon=pl011,0x09000000 initcall_debug' }
 # Direct kernel boot works under WHPX; EDK2 fails to start the kernel there.
 if ($Boot -eq "auto") { $Boot = "direct" }
 
@@ -66,7 +68,7 @@ $qargs = @(
     "-name", "TrimUI Brick",
     # highmem=off: keep PCIe ECAM/MMIO below 4 GB (the hypervisor's guest
     # address space is smaller than virt's default high regions)
-    "-M", "virt,highmem=off", "-cpu", $cpu, "-smp", "4", "-m", "1024", "-accel", $acc,
+    "-M", "virt,highmem=off", "-cpu", $cpu, "-smp", "$Cpus", "-m", "1024", "-accel", $acc,
     "-kernel", (Join-Path $Img "Image"), "-append", $cmdline,
     # eMMC = mmcblk0, SD slot = mmcblk1 (real SD/MMC protocol over SDHCI)
     "-device", "sdhci-pci,id=emmc-host,addr=0x5",
