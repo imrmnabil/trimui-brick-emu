@@ -48,10 +48,9 @@ names pointing at the shim/Mesa there.
   Fedora: `sudo dnf install qemu-system-aarch64-core qemu-ui-gtk qemu-ui-opengl
   qemu-ui-egl-headless qemu-device-display-virtio-gpu-pci-gl qemu-audio-pa`.
   `BRICK_QEMU=bundled` (or a path) overrides the choice.
-* NVIDIA (proprietary driver) + `--gpu virgl`: QEMU's GTK GL window doesn't
-  work there (black on Wayland, abort on X11), so the frame is rendered
-  offscreen on the GPU (`egl-headless`) and shown in a VNC viewer that
-  `./brick run` opens automatically: `sudo dnf install tigervnc`.
+* NVIDIA (proprietary driver) + `--gpu virgl`: QEMU's own GTK GL window
+  doesn't work there (black on Wayland, abort on X11); the default skin window
+  is not affected (it renders offscreen with `egl-headless`).
 * A desktop for the window (X11 / Wayland / WSLg). Without one the screen is
   served over VNC on `127.0.0.1:5900`.
 * ~15 GB disk for builds and images (images are sparse).
@@ -82,6 +81,23 @@ Other commands:
 
 The terminal you start `./brick run` in is the Brick's serial console
 (press Enter for a shell; `Ctrl-a x` quits QEMU).
+
+## Window
+
+`./brick run` opens a Brick-shaped window: the screen plus every button of the
+device, drawn as a clickable skin (`--color black|grey|white`, `--scale F`).
+
+* Left-click a button to press it (hold to keep it pressed; sliding across the
+  D-pad rolls between directions). Right-click latches a button down / up —
+  for combos such as MENU + a button.
+* Drag the body to move the window, Ctrl + mouse wheel to zoom, the red ✕ in
+  the top-right corner (on hover) or Ctrl+Q to power off the emulator.
+* The keyboard works as below; pressed buttons light up on the skin.
+
+QEMU renders offscreen (on the host GPU with `--gpu virgl`) and the window
+reads the screen from QEMU's VNC server on localhost (`tools/brick-window.py`,
+needs python3-gobject/GTK 3, pycairo, numpy). `--display gtk|sdl|vnc` gives the
+plain QEMU window or VNC instead.
 
 ## Controls
 

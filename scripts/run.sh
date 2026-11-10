@@ -2,7 +2,9 @@
 # Boot the emulated TrimUI Brick.
 # Usage: run.sh [SDCARD.img] [options]
 #   --gpu virgl     use host GPU acceleration (virtio-gpu-gl + virgl)
-#   --display D     gtk | sdl | vnc (default: gtk if a desktop is available, else vnc)
+#   --display D     skin | gtk | sdl | vnc (default: skin - Brick-shaped window with
+#                   clickable buttons - if a desktop is available, else vnc)
+#   --color C       skin colour: black | grey | white
 #   --headless      no window (serial console only); use with --monitor
 #   --monitor PATH  QEMU monitor on a unix socket (screendump, sendkey...)
 #   --scale N       window scale factor (default: fit)
@@ -14,7 +16,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"
-SD=""; GPU=soft; DISPLAY_MODE=""; EMMC=""; HEADLESS=0; MONITOR=""; LOG=""; NET=1; SCALE=""; SERSOCK=""; SHELLSOCK="$OUT/run/shell.sock"
+SD=""; GPU=soft; DISPLAY_MODE=""; EMMC=""; HEADLESS=0; MONITOR=""; LOG=""; NET=1; SCALE=""; SERSOCK=""; SHELLSOCK="$OUT/run/shell.sock"; COLOR=${BRICK_SKIN_COLOR:-black}
 while [ $# -gt 0 ]; do
   case "$1" in
     --gpu) GPU=$2; shift ;;
@@ -27,6 +29,7 @@ while [ $# -gt 0 ]; do
     --serial-sock) SERSOCK=$2; shift ;;
     --shell-sock) SHELLSOCK=$2; shift ;;
     --scale) SCALE=$2; shift ;;
+    --color) COLOR=$2; shift ;;
     -*) echo "unknown option $1"; exit 1 ;;
     *) SD=$1 ;;
   esac
@@ -74,8 +77,21 @@ else
   DISP="gtk"
 fi
 DESKTOP=0; { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } && DESKTOP=1
+free_port() {  # first free local TCP port from $1
+  python3 -I -c '
+import socket, sys
+for p in range(int(sys.argv[1]), int(sys.argv[1]) + 100):
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", p)); print(p); break
+    except OSError:
+        pass
+    finally:
+        s.close()' "$1"
+}
 if [ -z "$DISPLAY_MODE" ]; then
   if [ $DESKTOP = 0 ]; then DISPLAY_MODE=vnc
+  elif python3 -I -c 'import gi, cairo, numpy; gi.require_version("Gtk", "3.0")' 2>/dev/null; then DISPLAY_MODE=skin
   # NVIDIA's proprietary driver: QEMU's GTK GL window stays black (Wayland) or
   # aborts (X11), while GPU rendering itself works -> render offscreen
   # (egl-headless) and show it through a local VNC viewer.
@@ -85,18 +101,25 @@ fi
 if [ $HEADLESS = 1 ]; then
   # virtio-gpu-gl needs a GL-capable display backend even without a window
   if [ "$GPU" = virgl ]; then args+=(-display egl-headless); else args+=(-display none); fi
-elif [ "$DISPLAY_MODE" = vnc ]; then
+elif [ "$DISPLAY_MODE" = vnc ] || [ "$DISPLAY_MODE" = skin ]; then
+  # QEMU renders offscreen (egl-headless on the host GPU for virgl) and serves
+  # the screen over VNC on localhost; the skin window / a VNC viewer shows it.
   if [ "$GPU" = virgl ]; then args+=(-display egl-headless); else args+=(-display none); fi
-  VNC_PORT=${BRICK_VNC_PORT:-5900}
+  VNC_PORT=${BRICK_VNC_PORT:-$(free_port 5900)}
   args+=(-vnc 127.0.0.1:$((VNC_PORT - 5900)))
-  echo "screen is on VNC at 127.0.0.1:$VNC_PORT" >&2
-  if [ $DESKTOP = 1 ] && command -v vncviewer >/dev/null; then
-    # TigerVNC viewer as the emulator window; exits when QEMU does
-    ( for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT) 2>/dev/null && break; sleep 0.1; done
-      exec vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
-        -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT ) </dev/null >/dev/null 2>&1 &
-  elif [ $DESKTOP = 1 ]; then
-    echo "install a VNC viewer to get a window automatically (Fedora: sudo dnf install tigervnc)" >&2
+  if [ "$DISPLAY_MODE" = skin ]; then
+    # closing the window quits QEMU through the monitor
+    mkdir -p "$OUT/run"; [ -n "$MONITOR" ] || { MONITOR="$OUT/run/mon.sock"; rm -f "$MONITOR"; }
+    python3 -I "$ROOT/tools/brick-window.py" --vnc 127.0.0.1:$VNC_PORT --monitor "$MONITOR" \
+      --color "$COLOR" ${SCALE:+--scale "$SCALE"} </dev/null >/dev/null 2>"$OUT/run/window.log" &
+  else
+    echo "screen is on VNC at 127.0.0.1:$VNC_PORT" >&2
+    if [ $DESKTOP = 1 ] && command -v vncviewer >/dev/null; then
+      # TigerVNC viewer as the emulator window; exits when QEMU does
+      ( for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT) 2>/dev/null && break; sleep 0.1; done
+        exec vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
+          -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT ) </dev/null >/dev/null 2>&1 &
+    fi
   fi
 elif [ "$DISPLAY_MODE" = sdl ]; then
   args+=(-display "sdl${DISP#gtk}")
@@ -111,16 +134,7 @@ args+=(-audiodev "$AUD,id=snd0" -device intel-hda -device hda-duplex,audiodev=sn
 
 if [ $NET = 1 ]; then
   # forward guest ssh to the first free local port from 2222 (BRICK_SSH_PORT overrides)
-  SSH_PORT=${BRICK_SSH_PORT:-$(python3 -I -c '
-import socket
-for p in range(2222, 2300):
-    s = socket.socket()
-    try:
-        s.bind(("127.0.0.1", p)); print(p); break
-    except OSError:
-        pass
-    finally:
-        s.close()')}
+  SSH_PORT=${BRICK_SSH_PORT:-$(free_port 2222)}
   if [ -n "$SSH_PORT" ]; then
     args+=(-netdev user,id=net0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22)
     echo "guest ssh forwarded to 127.0.0.1:$SSH_PORT" >&2
