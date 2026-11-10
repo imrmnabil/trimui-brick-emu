@@ -11,6 +11,7 @@
     Brick.cmd -Reset                factory-reset the internal storage (eMMC)
     Brick.cmd -Trace                verbose kernel console (early boot messages, init steps)
     Brick.cmd -Cpus 1               number of emulated CPU cores (default 4)
+    Brick.cmd -Poll                 idle CPUs spin instead of sleeping (WFI) - WHPX workaround
     Brick.cmd -Boot direct          boot the kernel without UEFI firmware
 
   Requires Windows 11 24H2 (26100.3915+) with "Windows Hypervisor Platform"
@@ -25,6 +26,7 @@ param(
     [ValidateSet("auto", "edk2", "direct")] [string]$Boot = "auto",
     [switch]$Trace,
     [int]$Cpus = 4,
+    [switch]$Poll,
     [switch]$Reset
 )
 $ErrorActionPreference = "Stop"
@@ -56,6 +58,7 @@ $cmdline = "console=ttyAMA0 root=/dev/mmcblk0p5 rootwait init=/sbin/init rdinit=
            "partitions=$parts cma=64M gpt=1 snd_hda_intel.id=audiocodec " +
            "gpio_mockup.gpio_mockup_ranges=0,384 video=Virtual-1:1024x768 brick.gpu=$Gpu acpi=off"
 if ($Trace) { $cmdline = $cmdline -replace 'loglevel=1', 'loglevel=8 earlycon=pl011,0x09000000 initcall_debug' }
+if ($Poll) { $cmdline += " nohlt" }
 # Direct kernel boot works under WHPX; EDK2 fails to start the kernel there.
 if ($Boot -eq "auto") { $Boot = "direct" }
 
