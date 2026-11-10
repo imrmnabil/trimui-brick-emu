@@ -115,10 +115,13 @@ elif [ "$DISPLAY_MODE" = vnc ] || [ "$DISPLAY_MODE" = skin ]; then
   else
     echo "screen is on VNC at 127.0.0.1:$VNC_PORT" >&2
     if [ $DESKTOP = 1 ] && command -v vncviewer >/dev/null; then
-      # TigerVNC viewer as the emulator window; exits when QEMU does
+      # TigerVNC viewer as the emulator window; it exits when QEMU does, and
+      # closing it quits QEMU (through the monitor)
+      mkdir -p "$OUT/run"; [ -n "$MONITOR" ] || { MONITOR="$OUT/run/mon.sock"; rm -f "$MONITOR"; }
       ( for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT) 2>/dev/null && break; sleep 0.1; done
-        exec vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
-          -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT ) </dev/null >/dev/null 2>&1 &
+        vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
+          -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT || true
+        [ -S "$MONITOR" ] && python3 -I "$ROOT/tools/qmon.py" "$MONITOR" quit ) </dev/null >/dev/null 2>&1 &
     fi
   fi
 elif [ "$DISPLAY_MODE" = sdl ]; then
@@ -155,7 +158,10 @@ if [ -n "$SERSOCK" ]; then
   CMDLINE=${CMDLINE/console=ttyAMA0/console=hvc0}
   for i in "${!args[@]}"; do [ "${args[$i]}" = -append ] && args[$((i+1))]="$CMDLINE"; done
 elif [ -n "$LOG" ]; then args+=(-serial file:"$LOG")
-else args+=(-serial mon:stdio); fi
+else
+  args+=(-serial mon:stdio)
+  echo "this terminal is the Brick's serial console; Ctrl-a x quits the emulator" >&2
+fi
 args+=(-device virtconsole,chardev=con0,bus=vser.0,nr=0 -device virtconsole,chardev=shell0,bus=vser.0,nr=1)
 
 # QEMU: BRICK_QEMU=path overrides; otherwise the distro's QEMU if installed (built

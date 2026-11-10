@@ -486,18 +486,21 @@ class BrickWindow(Gtk.Window):
         cr.restore()
         self.draw_screen(cr)
         self.draw_controls(cr)
+        # close button: always faintly visible, red on hover
+        x, y, r = CLOSE_BTN
+        cr.new_path()
+        cr.arc(x, y, r, 0, 2 * math.pi)
         if self.hover_close:
-            x, y, r = CLOSE_BTN
-            cr.new_path()
-            cr.arc(x, y, r, 0, 2 * math.pi)
             cr.set_source_rgba(0.85, 0.25, 0.25, 0.95)
-            cr.fill()
-            cr.set_source_rgb(1, 1, 1)
-            cr.set_line_width(2)
-            for dx in (-1, 1):
-                cr.move_to(x - 4.5, y - 4.5 * dx)
-                cr.line_to(x + 4.5, y + 4.5 * dx)
-            cr.stroke()
+        else:
+            cr.set_source_rgba(1, 1, 1, 0.10)
+        cr.fill()
+        cr.set_source_rgba(1, 1, 1, 1 if self.hover_close else 0.45)
+        cr.set_line_width(2)
+        for dx in (-1, 1):
+            cr.move_to(x - 4.5, y - 4.5 * dx)
+            cr.line_to(x + 4.5, y + 4.5 * dx)
+        cr.stroke()
         return True
 
     def render_body(self):
