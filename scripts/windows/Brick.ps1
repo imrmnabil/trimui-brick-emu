@@ -9,6 +9,8 @@
     Brick.cmd -Accel tcg            no hypervisor (slow software CPU) - for testing
     Brick.cmd -Gpu virgl            experimental host-GPU GLES (ANGLE/Direct3D)
     Brick.cmd -Reset                factory-reset the internal storage (eMMC)
+    Brick.cmd -Trace                verbose kernel console (early boot messages)
+    Brick.cmd -Boot direct          boot the kernel without UEFI firmware
 
   Requires Windows 11 24H2 (26100.3915+) with "Windows Hypervisor Platform"
   enabled (optionalfeatures.exe).
@@ -19,6 +21,8 @@ param(
     [ValidateSet("whpx", "tcg")] [string]$Accel = "whpx",
     [ValidateSet("soft", "virgl")] [string]$Gpu = "soft",
     [ValidateSet("sdl", "gtk")] [string]$Display = "sdl",
+    [ValidateSet("auto", "edk2", "direct")] [string]$Boot = "auto",
+    [switch]$Trace,
     [switch]$Reset
 )
 $ErrorActionPreference = "Stop"
@@ -48,7 +52,11 @@ $parts = "bootloader@mmcblk0p1:env@mmcblk0p2:env-redund@mmcblk0p3:boot@mmcblk0p4
          "rootfs_data@mmcblk0p6:private@mmcblk0p7:recovery@mmcblk0p8:pstore@mmcblk0p9:UDISK@mmcblk0p10"
 $cmdline = "console=ttyAMA0 root=/dev/mmcblk0p5 rootwait init=/sbin/init rdinit=/rdinit loglevel=1 " +
            "partitions=$parts cma=64M gpt=1 snd_hda_intel.id=audiocodec " +
-           "gpio_mockup.gpio_mockup_ranges=0,384 video=Virtual-1:1024x768 brick.gpu=$Gpu"
+           "gpio_mockup.gpio_mockup_ranges=0,384 video=Virtual-1:1024x768 brick.gpu=$Gpu acpi=off"
+if ($Trace) { $cmdline = $cmdline -replace 'loglevel=1', 'loglevel=8 earlycon=pl011,0x09000000' }
+# WHPX on arm64 is validated with EDK2 (UEFI) firmware; it then boots our
+# EFI-stub kernel from -kernel/-append via fw_cfg.
+if ($Boot -eq "auto") { $Boot = if ($Accel -eq "whpx") { "edk2" } else { "direct" } }
 
 if ($Accel -eq "whpx") { $cpu = "host"; $acc = "whpx" } else { $cpu = "cortex-a53"; $acc = "tcg,thread=multi" }
 $gpuDev = if ($Gpu -eq "virgl") { "virtio-gpu-gl-pci,xres=1024,yres=768" } else { "virtio-gpu-pci,xres=1024,yres=768" }
@@ -76,6 +84,9 @@ $qargs = @(
     "-device", "virtconsole,chardev=con0,bus=vser.0,nr=0", "-device", "virtconsole,chardev=shell0,bus=vser.0,nr=1",
     "-serial", "mon:stdio"
 )
+if ($Boot -eq "edk2") {
+    $qargs = @("-bios", (Join-Path $Root "qemu\share\qemu\edk2-aarch64-code.fd")) + $qargs
+}
 if ($SD -and (Test-Path $SD)) {
     $qargs += @("-drive", "if=none,id=sd,file=$SD,format=$(Fmt $SD)",
                 "-device", "sd-card,drive=sd,bus=/gpex-pcihost/pcie.0/sd-host/sd-bus")
@@ -83,7 +94,7 @@ if ($SD -and (Test-Path $SD)) {
     Write-Host "note: no SD card image - booting stock firmware with an empty slot"
 }
 
-Write-Host "Starting TrimUI Brick ($acc). Keys: arrows=D-pad X/Z/S/A=A/B/X/Y Q/W/E/R=L/R/L2/R2 Enter=Start RShift=Select Esc=Menu P=Power"
+Write-Host "Starting TrimUI Brick ($acc, boot: $Boot). Keys: arrows=D-pad X/Z/S/A=A/B/X/Y Q/W/E/R=L/R/L2/R2 Enter=Start RShift=Select Esc=Menu P=Power"
 Write-Host "This window is the Brick's serial console (Ctrl-a x quits)."
 & $Qemu @qargs
 if ($LASTEXITCODE -ne 0) {
