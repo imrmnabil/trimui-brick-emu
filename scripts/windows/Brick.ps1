@@ -54,9 +54,8 @@ $cmdline = "console=ttyAMA0 root=/dev/mmcblk0p5 rootwait init=/sbin/init rdinit=
            "partitions=$parts cma=64M gpt=1 snd_hda_intel.id=audiocodec " +
            "gpio_mockup.gpio_mockup_ranges=0,384 video=Virtual-1:1024x768 brick.gpu=$Gpu acpi=off"
 if ($Trace) { $cmdline = $cmdline -replace 'loglevel=1', 'loglevel=8 earlycon=pl011,0x09000000' }
-# WHPX on arm64 is validated with EDK2 (UEFI) firmware; it then boots our
-# EFI-stub kernel from -kernel/-append via fw_cfg.
-if ($Boot -eq "auto") { $Boot = if ($Accel -eq "whpx") { "edk2" } else { "direct" } }
+# Direct kernel boot works under WHPX; EDK2 fails to start the kernel there.
+if ($Boot -eq "auto") { $Boot = "direct" }
 
 if ($Accel -eq "whpx") { $cpu = "host"; $acc = "whpx" } else { $cpu = "cortex-a53"; $acc = "tcg,thread=multi" }
 $gpuDev = if ($Gpu -eq "virgl") { "virtio-gpu-gl-pci,xres=1024,yres=768" } else { "virtio-gpu-pci,xres=1024,yres=768" }
@@ -65,7 +64,9 @@ $disp = if ($Gpu -eq "virgl") { "$Display,gl=on" } else { $Display }
 $qargs = @(
     "-L", (Join-Path $Root "qemu\share\qemu"),
     "-name", "TrimUI Brick",
-    "-M", "virt", "-cpu", $cpu, "-smp", "4", "-m", "1024", "-accel", $acc,
+    # highmem=off: keep PCIe ECAM/MMIO below 4 GB (the hypervisor's guest
+    # address space is smaller than virt's default high regions)
+    "-M", "virt,highmem=off", "-cpu", $cpu, "-smp", "4", "-m", "1024", "-accel", $acc,
     "-kernel", (Join-Path $Img "Image"), "-append", $cmdline,
     # eMMC = mmcblk0, SD slot = mmcblk1 (real SD/MMC protocol over SDHCI)
     "-device", "sdhci-pci,id=emmc-host,addr=0x5",
@@ -84,6 +85,10 @@ $qargs = @(
     "-device", "virtconsole,chardev=con0,bus=vser.0,nr=0", "-device", "virtconsole,chardev=shell0,bus=vser.0,nr=1",
     "-serial", "mon:stdio"
 )
+if ($Trace) {
+    $qargs += @("-d", "guest_errors,unimp", "-D", (Join-Path $Data "qemu.log"))
+    Write-Host "QEMU diagnostics: $(Join-Path $Data 'qemu.log')"
+}
 if ($Boot -eq "edk2") {
     $qargs = @("-bios", (Join-Path $Root "qemu\share\qemu\edk2-aarch64-code.fd")) + $qargs
 }
