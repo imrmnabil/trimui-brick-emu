@@ -55,6 +55,7 @@ $gpuDev = if ($Gpu -eq "virgl") { "virtio-gpu-gl-pci,xres=1024,yres=768" } else 
 $disp = if ($Gpu -eq "virgl") { "$Display,gl=on" } else { $Display }
 
 $qargs = @(
+    "-L", (Join-Path $Root "qemu\share\qemu"),
     "-name", "TrimUI Brick",
     "-M", "virt", "-cpu", $cpu, "-smp", "4", "-m", "1024", "-accel", $acc,
     "-kernel", (Join-Path $Img "Image"), "-append", $cmdline,
@@ -85,8 +86,11 @@ if ($SD -and (Test-Path $SD)) {
 Write-Host "Starting TrimUI Brick ($acc). Keys: arrows=D-pad X/Z/S/A=A/B/X/Y Q/W/E/R=L/R/L2/R2 Enter=Start RShift=Select Esc=Menu P=Power"
 Write-Host "This window is the Brick's serial console (Ctrl-a x quits)."
 & $Qemu @qargs
-if ($LASTEXITCODE -ne 0 -and $Accel -eq "whpx") {
+if ($LASTEXITCODE -ne 0) {
     Write-Host ""
-    Write-Host "QEMU failed with WHPX. Make sure 'Windows Hypervisor Platform' is enabled"
-    Write-Host "(optionalfeatures.exe, then reboot), or try:  Brick.cmd -Accel tcg"
+    Write-Host "QEMU exited with an error (see the message above)."
+    if ($Accel -eq "whpx") {
+        Write-Host "If it mentions WHPX/hypervisor: enable 'Windows Hypervisor Platform'"
+        Write-Host "(optionalfeatures.exe, then reboot), or try:  Brick.cmd -Accel tcg"
+    }
 }
