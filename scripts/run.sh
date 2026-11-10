@@ -76,6 +76,10 @@ else
   args+=(-device virtio-gpu-pci,xres=1024,yres=768)
   DISP="gtk"
 fi
+# QEMU monitor: always on a socket (default out/run/mon.sock) - used by the
+# skin window (quit), the manager (status, power, screenshots) and qmon.py
+mkdir -p "$OUT/run"
+[ -n "$MONITOR" ] || { MONITOR="$OUT/run/mon.sock"; rm -f "$MONITOR"; }
 DESKTOP=0; { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } && DESKTOP=1
 free_port() {  # first free local TCP port from $1
   python3 -I -c '
@@ -109,7 +113,6 @@ elif [ "$DISPLAY_MODE" = vnc ] || [ "$DISPLAY_MODE" = skin ]; then
   args+=(-vnc 127.0.0.1:$((VNC_PORT - 5900)))
   if [ "$DISPLAY_MODE" = skin ]; then
     # closing the window quits QEMU through the monitor
-    mkdir -p "$OUT/run"; [ -n "$MONITOR" ] || { MONITOR="$OUT/run/mon.sock"; rm -f "$MONITOR"; }
     python3 -I "$ROOT/tools/brick-window.py" --vnc 127.0.0.1:$VNC_PORT --monitor "$MONITOR" \
       --color "$COLOR" ${SCALE:+--scale "$SCALE"} </dev/null >/dev/null 2>"$OUT/run/window.log" &
   else
@@ -117,7 +120,6 @@ elif [ "$DISPLAY_MODE" = vnc ] || [ "$DISPLAY_MODE" = skin ]; then
     if [ $DESKTOP = 1 ] && command -v vncviewer >/dev/null; then
       # TigerVNC viewer as the emulator window; it exits when QEMU does, and
       # closing it quits QEMU (through the monitor)
-      mkdir -p "$OUT/run"; [ -n "$MONITOR" ] || { MONITOR="$OUT/run/mon.sock"; rm -f "$MONITOR"; }
       ( for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT) 2>/dev/null && break; sleep 0.1; done
         vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
           -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT || true

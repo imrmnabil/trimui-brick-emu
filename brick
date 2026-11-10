@@ -4,6 +4,7 @@
 #   ./brick setup [FW_TAG]         download + unpack stock firmware, build everything
 #   ./brick sd OUT.img SIZE SRC... build an SD card image from CFW zips / folders
 #   ./brick run [SD.img] [opts]    boot the emulated Brick (see scripts/run.sh)
+#   ./brick manager                control window: start/stop, SD card files, tools
 #   ./brick shell                  root shell on the running Brick (Ctrl-] detaches)
 #   ./brick fetch nextui|spruce    download the latest custom firmware into cfw/
 #   ./brick update                 rebuild emulator parts, keep internal storage
@@ -65,6 +66,7 @@ case "${1:-}" in
   update)
     "$S/build-kernel.sh"; "$S/build-guest.sh"; "$S/make-emmc.sh" --update-rootfs ;;
   run)  shift; exec "$S/run.sh" "$@" ;;
+  manager|gui) exec python3 -I "$ROOT/tools/brick-manager.py" ;;
   reset) exec "$S/make-emmc.sh" ;;
-  *) sed -n 2,10p "$0" ;;
+  *) sed -n 2,11p "$0" ;;
 esac

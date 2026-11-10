@@ -160,6 +160,7 @@ class VNC(threading.Thread):
         self.ext_keys = False
         self.w = self.h = 0
         self.fb = None
+        self.pixel_rects = 0      # rectangles with pixel data received so far
 
     def send(self, data):
         if self.sock:
@@ -234,6 +235,7 @@ class VNC(threading.Thread):
                         if enc == 0:
                             data = np.frombuffer(self.rx(rw * rh * 4), dtype=np.uint8).reshape(rh, rw, 4)
                             self.fb[y:y + rh, x:x + rw] = data
+                            self.pixel_rects += 1
                         elif enc == -223:
                             self.alloc(rw, rh)
                         elif enc == -258:

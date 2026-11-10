@@ -62,6 +62,7 @@ names pointing at the shim/Mesa there.
 ./brick fetch nextui               # or: ./brick fetch spruce
 ./brick sd out/sdcard.img 16G cfw/NextUI-*-base.zip   # add ROM/BIOS folders as extra args
 ./brick run                        # boots out/sdcard.img
+./brick manager                    # or: everything from a control window
 ```
 
 First boot of a CFW runs its installer exactly like on hardware (NextUI and
@@ -81,6 +82,25 @@ Other commands:
 
 The terminal you start `./brick run` in is the Brick's serial console
 (press Enter for a shell; `Ctrl-a x` quits QEMU).
+
+## Manager
+
+`./brick manager` opens a control window (System → "Add to app menu" puts it
+in the applications menu):
+
+* **Start / Power off / Restart** the Brick (clean shutdown and reboot inside
+  the firmware; *Force stop* and *Sleep / wake* in the ☰ menu), choose the SD
+  card image, graphics (GPU / software) and the window colour.
+* **SD card** tab: browse the card, add files and folders (buttons or drag &
+  drop from your file manager), new folder, export, delete. With the emulator
+  stopped, files are written straight into the image (fast); while it runs you
+  see the live card and uploads go through the emulated Brick (~1–3 MB/s).
+* **Screenshot** (saved to `~/Pictures/TrimUI Brick/`), **Shell** (root shell
+  in a terminal), **Console** tab with the boot log and a command box.
+* **System** tab: download NextUI / spruceOS, create SD cards (size + CFW +
+  extra folders), update the emulator, factory-reset internal storage.
+
+The manager also controls a Brick started with `./brick run` in a terminal.
 
 ## Window
 
