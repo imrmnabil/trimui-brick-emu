@@ -35,7 +35,8 @@ case "${1:-}" in
     shift
     [ -f "$ROOT/firmware/unpacked/rootfs.fex" ] && [ $# -eq 0 ] || fetch_firmware "${1:-}"
     docker image inspect brick-emu-builder >/dev/null 2>&1 || docker build -t brick-emu-builder "$ROOT/docker"
-    [ -x "$ROOT/out/qemu/bin/qemu-system-aarch64" ] || "$S/build-qemu.sh"
+    # distro QEMU is preferred by run.sh; the bundled build is the fallback
+    command -v qemu-system-aarch64 >/dev/null || [ -x "$ROOT/out/qemu/bin/qemu-system-aarch64" ] || "$S/build-qemu.sh"
     "$S/build-kernel.sh"
     "$S/build-guest.sh"
     "$S/make-emmc.sh"

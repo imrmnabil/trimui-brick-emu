@@ -64,7 +64,6 @@ else
 fi
 
 if [ "$GPU" = virgl ]; then
-  echo "note: --gpu virgl is experimental; if the window stays black use the default software mode" >&2
   # WSL: Mesa must use the d3d12 driver (GPU via /dev/dxg); otherwise it probes
   # /dev/dri, falls back to zink and GL in the QEMU window fails.
   if [ -e /dev/dxg ] && [ -z "${GALLIUM_DRIVER:-}" ]; then export GALLIUM_DRIVER=d3d12; fi
@@ -74,14 +73,31 @@ else
   args+=(-device virtio-gpu-pci,xres=1024,yres=768)
   DISP="gtk"
 fi
+DESKTOP=0; { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } && DESKTOP=1
 if [ -z "$DISPLAY_MODE" ]; then
-  if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then DISPLAY_MODE=gtk; else DISPLAY_MODE=vnc; fi
+  if [ $DESKTOP = 0 ]; then DISPLAY_MODE=vnc
+  # NVIDIA's proprietary driver: QEMU's GTK GL window stays black (Wayland) or
+  # aborts (X11), while GPU rendering itself works -> render offscreen
+  # (egl-headless) and show it through a local VNC viewer.
+  elif [ "$GPU" = virgl ] && [ -e /proc/driver/nvidia/version ]; then DISPLAY_MODE=vnc
+  else DISPLAY_MODE=gtk; fi
 fi
 if [ $HEADLESS = 1 ]; then
-  args+=(-display none)
+  # virtio-gpu-gl needs a GL-capable display backend even without a window
+  if [ "$GPU" = virgl ]; then args+=(-display egl-headless); else args+=(-display none); fi
 elif [ "$DISPLAY_MODE" = vnc ]; then
-  args+=(-display none -vnc 127.0.0.1:0)
-  echo "No desktop display found: screen is on VNC at 127.0.0.1:5900 (use any VNC viewer)." >&2
+  if [ "$GPU" = virgl ]; then args+=(-display egl-headless); else args+=(-display none); fi
+  VNC_PORT=${BRICK_VNC_PORT:-5900}
+  args+=(-vnc 127.0.0.1:$((VNC_PORT - 5900)))
+  echo "screen is on VNC at 127.0.0.1:$VNC_PORT" >&2
+  if [ $DESKTOP = 1 ] && command -v vncviewer >/dev/null; then
+    # TigerVNC viewer as the emulator window; exits when QEMU does
+    ( for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT) 2>/dev/null && break; sleep 0.1; done
+      exec vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
+        -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT ) </dev/null >/dev/null 2>&1 &
+  elif [ $DESKTOP = 1 ]; then
+    echo "install a VNC viewer to get a window automatically (Fedora: sudo dnf install tigervnc)" >&2
+  fi
 elif [ "$DISPLAY_MODE" = sdl ]; then
   args+=(-display "sdl${DISP#gtk}")
 else
@@ -128,5 +144,19 @@ elif [ -n "$LOG" ]; then args+=(-serial file:"$LOG")
 else args+=(-serial mon:stdio); fi
 args+=(-device virtconsole,chardev=con0,bus=vser.0,nr=0 -device virtconsole,chardev=shell0,bus=vser.0,nr=1)
 
+# QEMU: BRICK_QEMU=path overrides; otherwise the distro's QEMU if installed (built
+# against the host's GTK/virglrenderer/GPU driver - required for virgl on NVIDIA),
+# else the bundled build in out/qemu. BRICK_QEMU=bundled forces the bundled one.
+QEMU=${BRICK_QEMU:-}
+if [ -z "$QEMU" ] && SYSQ=$(command -v qemu-system-aarch64) &&
+   { [ "$GPU" != virgl ] || "$SYSQ" -device help 2>/dev/null | grep -q '"virtio-gpu-gl-pci"'; }; then
+  QEMU=$SYSQ
+fi
+if [ -n "$QEMU" ] && [ "$QEMU" != bundled ]; then
+  echo "using $("$QEMU" --version | head -1) ($QEMU)" >&2
+  exec "$QEMU" "${args[@]}"
+fi
+[ -x "$OUT/qemu/bin/qemu-system-aarch64" ] || { echo "no QEMU: install your distro's qemu-system-aarch64 or run ./brick setup"; exit 1; }
+[ "$GPU" = virgl ] && echo "note: bundled QEMU; if virgl fails (e.g. NVIDIA), install the distro's QEMU (see README)" >&2
 export LD_LIBRARY_PATH="$OUT/qemu/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec "$OUT/qemu/bin/qemu-system-aarch64" "${args[@]}"

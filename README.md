@@ -43,6 +43,15 @@ names pointing at the shim/Mesa there.
   Everything else (cross compilers, QEMU build deps, arm64 Mesa) lives in the
   builder containers; no binfmt/qemu-user setup is needed on x86_64 hosts.
   SELinux hosts work (bind mounts use `:z`, which relabels the project tree only).
+* Recommended: your distro's QEMU (`./brick run` prefers it over the bundled
+  build; needed for `--gpu virgl` on NVIDIA, where the bundled QEMU 9.2 fails):
+  Fedora: `sudo dnf install qemu-system-aarch64-core qemu-ui-gtk qemu-ui-opengl
+  qemu-ui-egl-headless qemu-device-display-virtio-gpu-pci-gl qemu-audio-pa`.
+  `BRICK_QEMU=bundled` (or a path) overrides the choice.
+* NVIDIA (proprietary driver) + `--gpu virgl`: QEMU's GTK GL window doesn't
+  work there (black on Wayland, abort on X11), so the frame is rendered
+  offscreen on the GPU (`egl-headless`) and shown in a VNC viewer that
+  `./brick run` opens automatically: `sudo dnf install tigervnc`.
 * A desktop for the window (X11 / Wayland / WSLg). Without one the screen is
   served over VNC on `127.0.0.1:5900`.
 * ~15 GB disk for builds and images (images are sparse).
@@ -65,7 +74,7 @@ Other commands:
 ```bash
 ./brick run out/sd-spruce.img --emmc out/emmc-spruce.img   # separate internal storage per CFW
 ./brick run --gpu virgl            # host-GPU accelerated GLES (needs a GL-capable desktop)
-./brick run --display vnc          # force VNC
+./brick run --display vnc          # force VNC (opens vncviewer if installed)
 ./brick shell                      # root shell on the running Brick (Ctrl-] to detach)
 ./brick update                     # rebuild emulator parts, keep internal storage
 ./brick reset                      # factory-reset internal storage (eMMC)
