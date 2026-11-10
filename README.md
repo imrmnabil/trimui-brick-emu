@@ -35,9 +35,15 @@ names pointing at the shim/Mesa there.
 
 ## Requirements
 
-* Linux host (tested: WSL2 on Windows-on-ARM, aarch64), Docker, `curl`, `7z`,
-  `python3`, `sgdisk`, `sfdisk`, `mke2fs`/`debugfs` (e2fsprogs).
-* A desktop for the window (WSLg / X11 / Wayland). Without one the screen is
+* Linux host, x86_64 or aarch64 (tested: Fedora 44 x86_64; earlier WSL2 on
+  aarch64), Docker, `curl`, `7z`, `python3`, `sgdisk`, `sfdisk`,
+  `mke2fs`/`debugfs` (e2fsprogs).
+  Fedora: `sudo dnf install gdisk 7zip e2fsprogs util-linux docker-ce` (or `moby-engine`).
+  Debian/Ubuntu: `sudo apt install gdisk 7zip e2fsprogs fdisk docker.io`.
+  Everything else (cross compilers, QEMU build deps, arm64 Mesa) lives in the
+  builder containers; no binfmt/qemu-user setup is needed on x86_64 hosts.
+  SELinux hosts work (bind mounts use `:z`, which relabels the project tree only).
+* A desktop for the window (X11 / Wayland / WSLg). Without one the screen is
   served over VNC on `127.0.0.1:5900`.
 * ~15 GB disk for builds and images (images are sparse).
 
@@ -100,8 +106,10 @@ firmware/  cfw/  out/      downloads and generated images (not source)
 
 ## Performance and limitations
 
-* No KVM is available under WSL2, so everything runs on QEMU's TCG: UI and app
-  start-up are several times slower than the real device, and software GLES
+* The Brick is an arm64 machine, so on an x86_64 host QEMU has to translate
+  every instruction (TCG; KVM can't help across architectures — and WSL2 has no
+  KVM even on arm64). UI and app start-up are several times slower than the
+  real device, and software GLES
   (llvmpipe) manages roughly 10–20 full-screen frames per second. `--gpu virgl`
   moves GLES rendering to the host GPU and is the way to get playable speed
   for GL-heavy emulators.

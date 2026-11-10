@@ -88,7 +88,7 @@ else
   args+=(-display "$DISP,zoom-to-fit=on,show-tabs=off,show-menubar=off")
 fi
 
-# audio: PulseAudio (WSLg / desktop) -> ALSA -> none
+# audio: PulseAudio / PipeWire-pulse (desktop, WSLg) -> ALSA -> none
 if [ -n "${PULSE_SERVER:-}" ] || [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/pulse/native" ]; then AUD=pa
 elif [ -e /dev/snd ]; then AUD=alsa; else AUD=none; fi
 args+=(-audiodev "$AUD,id=snd0" -device intel-hda -device hda-duplex,audiodev=snd0)

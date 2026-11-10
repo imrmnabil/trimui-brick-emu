@@ -5,11 +5,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 docker build -q -t brick-emu-guest -f "$ROOT/docker/Dockerfile.guest" "$ROOT/docker" >/dev/null
 STAGE="$ROOT/build/emu-root"
 rm -rf "$STAGE" && mkdir -p "$STAGE"
-docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT:/work" brick-emu-guest bash -ec '
+docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT:/work:z" brick-emu-guest bash -ec '
 S=/work/build/emu-root; M=$S/mesa; mkdir -p $M/dri $S/bin
-A=/usr/lib/aarch64-linux-gnu
+A=/usr/lib/aarch64-linux-gnu; CC=aarch64-linux-gnu-gcc
 # --- EGL shim (becomes /usr/lib/libEGL.so.1 for the firmware)
-gcc -shared -fPIC -O2 -Wall -fvisibility=hidden -Wl,-soname,libEGL.so.1 -Wl,--disable-new-dtags,-rpath,/brick-emu/mesa \
+$CC -shared -fPIC -O2 -Wall -fvisibility=hidden -Wl,-soname,libEGL.so.1 -Wl,--disable-new-dtags,-rpath,/brick-emu/mesa \
     -I/work/guest/egl-shim -o $S/libEGL.so.1 /work/guest/egl-shim/egl_fbdev_shim.c -ldl -lpthread
 # --- Mesa / glvnd
 cp -L $A/libEGL.so.1 $M/libEGL_glvnd.so.1
@@ -20,9 +20,12 @@ for d in kms_swrast virtio_gpu; do ln -sf swrast_dri.so $M/dri/${d}_dri.so; done
 skip="^(libc|libm|libdl|libpthread|librt|ld-linux-aarch64|libstdc\+\+|libgcc_s)\.so"
 for i in 1 2 3 4 5 6; do
   for f in $M/*.so* $M/dri/swrast_dri.so; do
-    ldd $f 2>/dev/null | awk "/=> \//{print \$1\" \"\$3}" | while read n p; do
+    # DT_NEEDED via readelf (ldd cannot run arm64 objects on a foreign host)
+    readelf -d $f | sed -n "s/.*Shared library: \[\(.*\)\]/\1/p" | while read n; do
       echo "$n" | grep -Eq "$skip" && continue
-      [ -e $M/$n ] || cp -L $p $M/$n
+      [ -e $M/$n ] && continue
+      p=$(ls $A/$n /lib/aarch64-linux-gnu/$n 2>/dev/null | head -1)
+      [ -n "$p" ] && cp -L $p $M/$n || echo "warning: $n not found" >&2
     done
   done
 done
@@ -31,9 +34,9 @@ for f in $M/*.so* $M/dri/swrast_dri.so; do patchelf --force-rpath --set-rpath /b
 # glvnd vendor json (also selected explicitly by the shim)
 mkdir -p $S/glvnd && echo "{\"file_format_version\":\"1.0.0\",\"ICD\":{\"library_path\":\"/brick-emu/mesa/libEGL_mesa.so.0\"}}" > $S/glvnd/50_mesa.json
 # --- small test program
-gcc -O2 -o $S/bin/gltest /work/guest/tools/gltest.c $(sdl2-config --cflags) -lSDL2 -lGLESv2 -lm
-gcc -O2 -o $S/bin/evtest /work/guest/tools/evtest.c
-gcc -O2 -o $S/bin/setsid /work/guest/tools/setsid.c
+$CC -O2 -o $S/bin/gltest /work/guest/tools/gltest.c -I/usr/include/SDL2 -D_REENTRANT -lSDL2 -lGLESv2 -lm
+$CC -O2 -o $S/bin/evtest /work/guest/tools/evtest.c
+$CC -O2 -o $S/bin/setsid /work/guest/tools/setsid.c
 ls $M | wc -l; du -sh $S
 '
 cp -r "$ROOT/guest/files/." "$STAGE/" 2>/dev/null || true

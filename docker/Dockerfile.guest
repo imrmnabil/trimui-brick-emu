@@ -1,11 +1,17 @@
-# Guest-side builder: Debian bullseye arm64 (glibc 2.31 <= Brick's glibc 2.33),
-# provides Mesa 20.3 (llvmpipe + virgl) and a compiler for guest helpers.
+# Guest-side builder: Debian bullseye (glibc 2.31 <= Brick's glibc 2.33) with
+# arm64 multiarch: provides arm64 Mesa 20.3 (llvmpipe + virgl) and an aarch64
+# compiler for guest helpers. Runs natively on any host arch (cross-compiles on
+# x86_64, compiles natively on arm64) - no binfmt/qemu-user needed.
 FROM debian:bullseye
 ENV DEBIAN_FRONTEND=noninteractive
 # bullseye is EOL: use the archive
 RUN printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian-security bullseye-security main\n' > /etc/apt/sources.list \
     && rm -f /etc/apt/sources.list.d/*
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      gcc libc6-dev make file patchelf ca-certificates \
-      libegl-dev libgles-dev libgbm-dev libdrm-dev libegl-mesa0 libgl1-mesa-dri libgles2 libgbm1 libsdl2-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -e; native=$(dpkg --print-architecture); \
+    if [ "$native" = arm64 ]; then cc=gcc; else dpkg --add-architecture arm64; cc=gcc-aarch64-linux-gnu; fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
+      $cc binutils make file patchelf ca-certificates \
+      libc6-dev:arm64 libegl-dev:arm64 libgles-dev:arm64 libgbm-dev:arm64 libdrm-dev:arm64 \
+      libegl-mesa0:arm64 libgl1-mesa-dri:arm64 libgles2:arm64 libgbm1:arm64 libsdl2-dev:arm64 \
+    && rm -rf /var/lib/apt/lists/*; \
+    command -v aarch64-linux-gnu-gcc >/dev/null || ln -s "$(command -v gcc)" /usr/local/bin/aarch64-linux-gnu-gcc

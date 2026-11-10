@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KVER=${KVER:-6.6.60}
 mkdir -p "$ROOT/build" "$ROOT/out"
-docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT:/work" -w /work/build brick-emu-builder bash -c "
+docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT:/work:z" -w /work/build brick-emu-builder bash -c "
 set -e
 [ -d linux-$KVER ] || { wget -q https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$KVER.tar.xz && tar xf linux-$KVER.tar.xz; }
 cd linux-$KVER
