@@ -1,0 +1,35 @@
+#!/bin/bash
+# TrimUI Brick emulator launcher (installed package).
+#   trimui-brick-emu                 the manager window
+#   trimui-brick-emu run [opts]      boot directly; also shell, sd, fetch, reset, update
+# User data: $BRICK_DATA, default ~/.local/share/trimui-brick-emu
+B=/usr/share/trimui-brick-emu
+export BRICK_VERSION="$(cat "$B/VERSION")"
+export BRICK_ASSETS="$B/assets"
+export BRICK_DATA="${BRICK_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/trimui-brick-emu}"
+mkdir -p "$BRICK_DATA/out"
+
+running() {  # an emulator is up on this data dir
+  python3 -I -c 'import socket, sys
+s = socket.socket(socket.AF_UNIX)
+try: s.connect(sys.argv[1])
+except OSError: sys.exit(1)' "$BRICK_DATA/out/run/mon.sock" 2>/dev/null
+}
+# after a package update: refresh the internal storage's system partition
+# (emulator hook), never while an emulator is using it
+stamp="$BRICK_DATA/out/.installed-version"
+if [ -f "$BRICK_DATA/out/emmc.img" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$BRICK_VERSION" ] && ! running; then
+  echo "updating the emulated internal storage for version $BRICK_VERSION…" >&2
+  "$B/scripts/make-emmc.sh" --update-rootfs >/dev/null && echo "$BRICK_VERSION" > "$stamp"
+fi
+
+case "${1:-}" in
+  ""|manager|gui) exec python3 -I "$B/tools/brick-manager.py" ;;
+  -v|--version) echo "TrimUI Brick emulator $BRICK_VERSION"; exit 0 ;;
+  -h|--help|help)
+    echo "TrimUI Brick emulator $BRICK_VERSION"
+    echo "  trimui-brick-emu              open the manager"
+    sed -n 's|^#   \./brick \(.*\)|  trimui-brick-emu \1|p' "$B/brick" | grep -v ' setup '
+    exit 0 ;;
+  *) exec "$B/brick" "$@" ;;
+esac

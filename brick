@@ -30,7 +30,7 @@ case "${1:-}" in
       # prebuilt emulator (AppImage): only the stock firmware + internal storage
       [ -f "$DATA/firmware/unpacked/rootfs.fex" ] && [ $# -eq 0 ] || fetch_firmware "${1:-}"
       [ -f "$DATA/out/emmc.img" ] || "$S/make-emmc.sh"
-      [ -z "${BRICK_VERSION:-}" ] || echo "$BRICK_VERSION" > "$DATA/out/.appimage-version"
+      [ -z "${BRICK_VERSION:-}" ] || echo "$BRICK_VERSION" > "$DATA/out/.installed-version"
       echo "Ready."
       exit 0
     fi

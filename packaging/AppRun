@@ -22,7 +22,7 @@ except OSError: sys.exit(1)' "$BRICK_DATA/out/run/mon.sock" 2>/dev/null
 }
 # after an AppImage update: refresh the internal storage's system partition
 # (emulator hook), never while an emulator is using it
-stamp="$BRICK_DATA/out/.appimage-version"
+stamp="$BRICK_DATA/out/.installed-version"
 if [ -f "$BRICK_DATA/out/emmc.img" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$BRICK_VERSION" ] && ! running; then
   echo "updating the emulated internal storage for version $BRICK_VERSION…" >&2
   "$B/scripts/make-emmc.sh" --update-rootfs >/dev/null && echo "$BRICK_VERSION" > "$stamp"

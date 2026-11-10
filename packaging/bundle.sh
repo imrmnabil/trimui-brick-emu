@@ -64,12 +64,13 @@ cp /usr/bin/python3.10 "$A/usr/bin/python3.10"
 cp -a /usr/lib/python3.10 "$A/usr/lib/"
 rm -rf "$A/usr/lib/python3.10/"{test,idlelib,tkinter,turtledemo,ensurepip,lib2to3,pydoc_data,distutils/tests,site-packages}
 find "$A/usr/lib/python3.10" -name __pycache__ -prune -exec rm -rf {} +
+rm -f "$A/usr/lib/python3.10/lib-dynload/"nis.*.so   # needs libnsl (not on Debian 12), unused
 mkdir -p "$A/usr/lib/python3/dist-packages"
 cp -a /usr/lib/python3/dist-packages/{gi,cairo} "$A/usr/lib/python3/dist-packages/"
 cp -a $MULTI/girepository-1.0 "$A/usr/lib/"
 # GTK 3 runtime: the libraries the typelibs name, pixbuf loaders, schemas, icons
 for l in libgtk-3.so.0 libgdk-3.so.0 libgdk_pixbuf-2.0.so.0 libpango-1.0.so.0 libpangocairo-1.0.so.0 \
-         libpangoft2-1.0.so.0 libatk-1.0.so.0 libcairo-gobject.so.2 libharfbuzz.so.0 librsvg-2.so.2 \
+         libpangoft2-1.0.so.0 libatk-1.0.so.0 libcairo-gobject.so.2 librsvg-2.so.2 \
          libgirepository-1.0.so.1; do cp -L "$MULTI/$l" "$A/usr/lib/"; done
 mkdir -p "$A/usr/lib/gdk-pixbuf-2.0/2.10.0" "$A/usr/lib/gio/modules"
 cp -a $MULTI/gdk-pixbuf-2.0/2.10.0/loaders "$A/usr/lib/gdk-pixbuf-2.0/2.10.0/"
@@ -142,8 +143,13 @@ cp "$SRC/packaging/trimui-brick-emu.png" "$A/usr/share/icons/hicolor/256x256/app
 # ------------------------------------------------------------------ libraries
 # Bundle every shared library our binaries need, except the base system and
 # the GPU / display / audio stack, which must come from the host (drivers).
+# Rule: what comes from the host must not depend on anything bundled, and
+# vice versa only on stable ABIs. So libselinux/pcre2 and libmount/blkid/uuid
+# are bundled together with the libsystemd they need (Arch has no libselinux;
+# a host libmount wants a newer libsystemd), while harfbuzz comes from the host
+# with fontconfig/freetype (host freetype links it).
 log "collecting libraries"
-EXCLUDE='^(ld-linux.*|linux-vdso.*|libc|libm|libdl|libpthread|librt|libutil|libresolv|libnsl|libanl|libmvec|libBrokenLocale|libthread_db|libnss_.*|libgcc_s|libstdc\+\+|libGL|libEGL|libGLX|libGLdispatch|libOpenGL|libGLESv2|libgbm|libdrm|libX11|libX11-xcb|libxcb.*|libasound|libfontconfig|libfreetype|libexpat|libz|libwayland-client|libwayland-cursor|libwayland-egl|libwayland-server|libgpg-error|libcom_err|libjack|libpipewire-.*|libudev|libuuid|libblkid|libselinux|libmount|libpcre2-8)\.so'
+EXCLUDE='^(ld-linux.*|linux-vdso.*|libc|libm|libdl|libpthread|librt|libutil|libresolv|libnsl|libanl|libmvec|libBrokenLocale|libthread_db|libnss_.*|libgcc_s|libstdc\+\+|libGL|libEGL|libGLX|libGLdispatch|libOpenGL|libGLESv2|libgbm|libdrm|libX11|libX11-xcb|libxcb.*|libasound|libfontconfig|libfreetype|libexpat|libz|libwayland-client|libwayland-cursor|libwayland-egl|libwayland-server|libgpg-error|libcom_err|libjack|libpipewire-.*|libudev|libharfbuzz)\.so'
 elfs() { find "$A/usr" -type f \( -perm -u+x -o -name '*.so' -o -name '*.so.*' \) -exec sh -c 'head -c4 "$1" | grep -q ELF && echo "$1"' _ {} \; ; }
 for pass in 1 2 3 4 5 6; do
   added=0
@@ -155,11 +161,14 @@ for pass in 1 2 3 4 5 6; do
   done > "$W/added.txt"
   [ -s "$W/added.txt" ] || break
 done
-# relative runpaths ($ORIGIN): no LD_LIBRARY_PATH needed, so host programs
-# started from the emulator never see the bundled libraries
+# relative DT_RUNPATH ($ORIGIN): applies only to each bundled file's own
+# dependencies (unlike DT_RPATH, never to the host's libraries, e.g. the Mesa
+# driver stack loaded through libEGL), and no LD_LIBRARY_PATH that would leak
+# into host programs started from the emulator
 for f in $(elfs); do
   rel=$(realpath --relative-to="$(dirname "$f")" "$A/usr/lib")
-  patchelf --force-rpath --set-rpath "\$ORIGIN/$rel" "$f" 2>/dev/null || true
+  patchelf --remove-rpath "$f" 2>/dev/null || true
+  patchelf --set-rpath "\$ORIGIN/$rel" "$f" 2>/dev/null || true
 done
 # missing-library check (host-provided ones are expected to be absent here only
 # if excluded)

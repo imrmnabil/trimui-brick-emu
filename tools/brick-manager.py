@@ -25,6 +25,8 @@ ASSETS = os.environ.get('BRICK_ASSETS', OUT)                            # kernel
 APPIMAGE = os.environ.get('APPIMAGE')                                   # set when run from the AppImage
 BRICK = os.path.join(ROOT, 'brick')
 VERSION = os.environ.get('BRICK_VERSION', 'dev')
+PACKAGED = 'BRICK_ASSETS' in os.environ                                # AppImage / RPM: prebuilt emulator
+SYSTEM_INSTALL = os.path.realpath(ROOT).startswith('/usr/')             # RPM: menu entry already there
 RUN = os.path.join(OUT, 'run')
 MON_SOCK = os.path.join(RUN, 'mon.sock')
 SHELL_SOCK = os.path.join(RUN, 'shell.sock')
@@ -1150,15 +1152,16 @@ class Manager(Gtk.Window):
         section('New SD card', 'Create an empty SD card image or one with a CFW installed on it.',
                 [('New SD card…', self.on_new_sd, 'suggested-action')])
         section('Update emulator', ('Refresh the system partition of the internal storage (needed after '
-                'an AppImage update; done automatically on start). ' if APPIMAGE else
+                'an update of the emulator; done automatically on start). ' if PACKAGED else
                 'Rebuild the kernel and emulator add-ons and refresh the system partition. Takes several minutes. ')
                 + 'Settings and internal storage are kept.',
                 [('Update', lambda *a: self.stopped_task('Updating the emulator', [BRICK, 'update']), None)])
         section('Factory reset', 'Wipe the internal storage (eMMC) back to the stock firmware state. '
                 'SD cards are not touched.',
                 [('Reset…', self.on_reset, 'destructive-action')])
-        section('Desktop integration', 'Add "TrimUI Brick" to the applications menu.',
-                [('Add to app menu', self.on_desktop_entry, None)])
+        if not SYSTEM_INSTALL:
+            section('Desktop integration', 'Add "TrimUI Brick" to the applications menu.',
+                    [('Add to app menu', self.on_desktop_entry, None)])
         return page
 
     def task(self, title, cmd, done=None):
