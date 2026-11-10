@@ -79,7 +79,7 @@ $qargs = @(
     "-device", $gpuDev,
     "-display", $disp,
     "-audiodev", "dsound,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0",
-    "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0",
+    "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0,romfile=",
     "-device", "virtio-serial-pci,id=vser", "-chardev", "null,id=con0", "-chardev", "null,id=shell0",
     "-device", "virtconsole,chardev=con0,bus=vser.0,nr=0", "-device", "virtconsole,chardev=shell0,bus=vser.0,nr=1",
     "-serial", "mon:stdio"
