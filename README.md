@@ -27,7 +27,7 @@ GLES apps ─► SDL "mali" backend ─► brick-emu libEGL shim ─► Mesa (ll
 | PowerVR GE8300 GLES | Mesa 20.3 (GLES 3.2) behind an fbdev-EGL shim; optional virgl (host GPU) |
 | audiocodec (ALSA card 0) | intel-hda, card id `audiocodec` → host PulseAudio/ALSA |
 | `/proc/cpuinfo` `hwserial: TG3040…` | printed like the TrimUI kernel (CFWs detect the Brick from it) |
-| Wi-Fi | not emulated; there is wired user-mode networking (`eth0`) instead |
+| Wi-Fi (XRadio, nl80211) | `mac80211_hwsim` radio as `wlan0` + a simulated access point (see *Wi-Fi*) |
 
 The stock rootfs is used as-is except for: a preinit hook that mounts the
 read-only *additions* disk at `/brick-emu`, and the PowerVR `libEGL/libGLES*`
@@ -102,6 +102,28 @@ in the applications menu):
 
 The manager also controls a Brick started with `./brick run` in a terminal.
 
+## Wi-Fi
+
+The Brick gets a real (simulated) Wi-Fi radio, `wlan0`, driven by the stock
+`wpa_supplicant`/`udhcpc` and the firmware's or CFW's own Wi-Fi menu. The
+emulator runs a virtual access point for it:
+
+| | default | change with |
+|---|---|---|
+| network name | `BrickNet` | `--wifi-ssid NAME` / manager → Wi-Fi… |
+| password (WPA2) | `brick1234` | `--wifi-pass PW` (`""` = open network) |
+| router | on | `--no-wifi`; live: manager ☰ → Wi-Fi router on / off |
+
+Scan, connect (a wrong password fails like on hardware), DHCP, DNS and
+internet through the PC all work. As on the real device the Brick has no
+other network: no Wi-Fi, no internet. SSH (`127.0.0.1:2222`) reaches it once
+it is on Wi-Fi.
+
+How: two `mac80211_hwsim` radios; the second one and the emulator's wired link
+(QEMU user networking) live in a hidden "router" network namespace, bridged,
+with the firmware's own `hostapd` (`/brick-emu/bin/wifi-ap`). Settings reach
+the guest via QEMU `fw_cfg`. Changing the kernel/hook needs `./brick update`.
+
 ## Window
 
 `./brick run` opens a Brick-shaped window: the screen plus every button of the
@@ -158,7 +180,7 @@ firmware/  cfw/  out/      downloads and generated images (not source)
   (llvmpipe) manages roughly 10–20 full-screen frames per second. `--gpu virgl`
   moves GLES rendering to the host GPU and is the way to get playable speed
   for GL-heavy emulators.
-* Wi-Fi/Bluetooth hardware, suspend, LEDs (state is stored, not shown) and
+* Bluetooth, suspend, LEDs (state is stored, not shown) and
   rumble are not reproduced.
 * Firmware updates through the stock OTA work on the emulated eMMC but would
   replace the rootfs hook; run `./brick update` afterwards.

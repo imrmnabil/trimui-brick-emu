@@ -6,6 +6,9 @@ brick_emu_mount() {
 	mkdir -p /brick-emu
 	grep -q " /brick-emu " /proc/mounts || \
 		mount -t ext4 -o ro /dev/vda /brick-emu
+	# emulator additions' own init (simulated Wi-Fi, ...), kept on the
+	# additions disk so it can change without touching the rootfs
+	[ -x /brick-emu/init ] && /brick-emu/init
 	if [ -c /dev/hvc1 ]; then
 		( while :; do
 			/brick-emu/bin/setsid /bin/ash -c 'exec /bin/ash </dev/hvc1 >/dev/hvc1 2>&1'

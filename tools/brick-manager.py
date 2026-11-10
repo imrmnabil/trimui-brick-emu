@@ -23,6 +23,7 @@ OUT = os.path.join(ROOT, 'out')
 RUN = os.path.join(OUT, 'run')
 MON_SOCK = os.path.join(RUN, 'mon.sock')
 SHELL_SOCK = os.path.join(RUN, 'shell.sock')
+AGENT_SOCK = os.environ.get('BRICK_AGENT_SOCK', os.path.join(RUN, 'agent.sock'))
 CONSOLE_LOG = os.path.join(RUN, 'console.log')
 QEMU_LOG = os.path.join(RUN, 'qemu.log')
 CONFIG = os.path.join(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'brick-emu', 'manager.json')
@@ -77,24 +78,22 @@ class ShellBusy(Exception):
 
 
 def guest(cmd, timeout=30):
-    """Run a command in the Brick's root shell (hvc1); returns (status, output)."""
+    """Run a command in the Brick (as root, through the agent channel hvc2:
+    a non-interactive shell, so no echo / prompt / line-length limit).
+    Returns (status, output)."""
     s = socket.socket(socket.AF_UNIX)
     s.settimeout(2)
     try:
-        s.connect(SHELL_SOCK)
+        s.connect(AGENT_SOCK)
     except OSError as e:
-        raise ShellBusy(f'cannot reach the Brick shell ({e})')
+        raise ShellBusy(f'cannot reach the Brick ({e})')
     tag = secrets.token_hex(4)
-    # start / end markers are split by quotes so the echoed input never matches
-    # (eval: any command text works, e.g. one ending in '&')
-    line = f'echo "__S""{tag}__"; eval {sq(cmd)}; echo "__E""{tag}__:$?"\n'
-    if len(line) > 1000:
-        raise ValueError('command too long for the guest shell')
-    s.sendall(b'\n' + line.encode())
+    # stdin from /dev/null: commands must not eat the following input
+    line = f'echo __S{tag}__; eval {sq(cmd)} </dev/null 2>&1; echo __E{tag}__:$?\n'
+    s.sendall(line.encode())
     buf = ''
     end = time.time() + timeout
     s.settimeout(0.5)
-    m = None
     try:
         while time.time() < end:
             try:
@@ -104,10 +103,9 @@ def guest(cmd, timeout=30):
             if not d:
                 break
             buf += d.decode(errors='replace')
-            clean = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]|\r', '', buf)
-            m = re.search(rf'^__S{tag}__\n(.*?)^__E{tag}__:(\d+)$', clean, re.M | re.S)
+            m = re.search(rf'^__S{tag}__\r?\n(.*?)^__E{tag}__:(\d+)\r?$', buf, re.M | re.S)
             if m:
-                return int(m.group(2)), m.group(1)
+                return int(m.group(2)), m.group(1).replace('\r', '')
     finally:
         s.close()
     raise TimeoutError(f'guest command timed out: {cmd[:60]}')
@@ -309,10 +307,17 @@ class GuestSD:
         self.run(f'rm -rf {sq(d.rstrip("/") + "/" + e.key)} && sync', timeout=120)
 
     def ensure_net(self):
+        """-> command prefix for network tools reaching the host (10.0.2.2).
+        With the simulated Wi-Fi the emulator's wired link lives in the hidden
+        router namespace (works whether or not the Brick is on Wi-Fi)."""
+        st, _ = guest('[ -f /dev/.brick-router ]', 10)
+        if st == 0:
+            return '/brick-emu/bin/wifi-ap exec '
         st, out = guest('ifconfig eth0 2>/dev/null | grep -q "inet addr" || '
                         'ifconfig eth0 10.0.2.15 netmask 255.255.255.0 up', 15)
         if st:
             raise RuntimeError('the emulated Brick has no network (started with --no-net?)')
+        return ''
 
     def add(self, d, sources, progress):
         jobs = []   # (host file, guest path)
@@ -328,7 +333,7 @@ class GuestSD:
             else:
                 jobs.append((src, d.rstrip('/') + '/' + base))
         total = sum(os.path.getsize(h) for h, _ in jobs) or 1
-        self.ensure_net()
+        net = self.ensure_net()
         srv = FileServer()
         try:
             for gd in dirs:
@@ -338,7 +343,7 @@ class GuestSD:
                 progress(done / total, os.path.basename(host))
                 size = os.path.getsize(host)
                 # ~1 MB/s worst case through the emulated card, plus slack
-                self.run(f'wget -q -O {sq(gpath + ".part")} {srv.url(host)} && mv -f {sq(gpath + ".part")} {sq(gpath)}',
+                self.run(f'{net}wget -q -O {sq(gpath + ".part")} {srv.url(host)} && mv -f {sq(gpath + ".part")} {sq(gpath)}',
                          timeout=60 + size / 500_000)
                 done += size
             self.run('sync', timeout=300)
@@ -373,6 +378,7 @@ class Manager(Gtk.Window):
         self.b_menu = Gtk.MenuButton(image=Gtk.Image.new_from_icon_name('open-menu-symbolic', Gtk.IconSize.BUTTON))
         menu = Gtk.Menu()
         for label, cb in (('Force stop', self.on_force_stop), ('Sleep / wake (power button)', self.on_sleep),
+                          ('Wi-Fi router on / off', self.on_router_toggle),
                           ('Open emulator folder', lambda *a: self.open_uri(ROOT))):
             it = Gtk.MenuItem(label=label)
             it.connect('activate', cb)
@@ -414,6 +420,10 @@ class Manager(Gtk.Window):
             self.color_combo.append(c, c.capitalize())
         self.color_combo.set_active_id(self.cfg.get('color', 'black'))
         opts.pack_start(self.color_combo, False, False, 0)
+        self.b_wifi = Gtk.Button(label='Wi-Fi…')
+        self.b_wifi.set_tooltip_text('Simulated Wi-Fi network the Brick can join')
+        self.b_wifi.connect('clicked', self.on_wifi)
+        opts.pack_start(self.b_wifi, False, False, 0)
 
         self.nb = Gtk.Notebook()
         box.pack_start(self.nb, True, True, 0)
@@ -574,6 +584,11 @@ class Manager(Gtk.Window):
             args.append(sd)
         args += ['--gpu', self.gpu_combo.get_active_id(), '--color', self.color_combo.get_active_id(),
                  '--log', CONSOLE_LOG]
+        wifi = self.wifi_cfg()
+        if wifi['enabled']:
+            args += ['--wifi-ssid', wifi['ssid'], '--wifi-pass', wifi['password']]
+        else:
+            args.append('--no-wifi')
         os.makedirs(RUN, exist_ok=True)
         open(CONSOLE_LOG, 'w').close()
         self.log_pos = 0
@@ -639,6 +654,68 @@ class Manager(Gtk.Window):
                 hmp(['sendkey p 200'])
             except OSError:
                 pass
+
+    # --- simulated Wi-Fi
+    def wifi_cfg(self):
+        w = dict(enabled=True, ssid='BrickNet', password='brick1234')
+        w.update(self.cfg.get('wifi', {}))
+        return w
+
+    def on_wifi(self, *a):
+        w = self.wifi_cfg()
+        d = Gtk.Dialog(title='Simulated Wi-Fi', transient_for=self, modal=True)
+        d.add_buttons('Cancel', Gtk.ResponseType.CANCEL, 'Save', Gtk.ResponseType.OK)
+        g = Gtk.Grid(row_spacing=10, column_spacing=10, margin=14)
+        d.get_content_area().add(g)
+        info = Gtk.Label(xalign=0, wrap=True, max_width_chars=52, label=(
+            'The emulator provides a Wi-Fi access point ("router") that the Brick finds in its Wi-Fi '
+            'settings. Once connected it has internet through this PC. Changes apply the next time '
+            'the Brick is started.'))
+        info.get_style_context().add_class('dim-label')
+        g.attach(info, 0, 0, 2, 1)
+        sw = Gtk.Switch(active=w['enabled'], halign=Gtk.Align.START)
+        g.attach(Gtk.Label(label='Router', xalign=1), 0, 1, 1, 1)
+        g.attach(sw, 1, 1, 1, 1)
+        g.attach(Gtk.Label(label='Network name', xalign=1), 0, 2, 1, 1)
+        ssid = Gtk.Entry(text=w['ssid'], hexpand=True, max_length=32)
+        g.attach(ssid, 1, 2, 1, 1)
+        g.attach(Gtk.Label(label='Password', xalign=1), 0, 3, 1, 1)
+        pw = Gtk.Entry(text=w['password'], visibility=False, max_length=63,
+                       placeholder_text='empty = open network', input_purpose=Gtk.InputPurpose.PASSWORD)
+        pw.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, 'view-reveal-symbolic')
+        pw.connect('icon-press', lambda e, *x: e.set_visibility(not e.get_visibility()))
+        g.attach(pw, 1, 3, 1, 1)
+        d.show_all()
+        while d.run() == Gtk.ResponseType.OK:
+            n, p = ssid.get_text(), pw.get_text()
+            if not 1 <= len(n.encode()) <= 32:
+                self.msg('The network name must be 1–32 characters.')
+                continue
+            if p and not 8 <= len(p) <= 63:
+                self.msg('The password must be 8–63 characters (or empty for an open network).')
+                continue
+            self.cfg['wifi'] = dict(enabled=sw.get_active(), ssid=n, password=p)
+            self.save_cfg()
+            if self.state is not None:
+                self.set_status('Wi-Fi settings saved; they apply the next time the Brick starts')
+            break
+        d.destroy()
+
+    def on_router_toggle(self, *a):
+        if self.state is None:
+            self.msg('The Brick is not running.', secondary='Use "Wi-Fi…" to set up the network for the next start.')
+            return
+
+        def fn(report):
+            st, out = guest('/brick-emu/bin/wifi-ap status | head -1', 10)
+            if 'not found' in out or st == 127:
+                raise RuntimeError('this emulator build has no Wi-Fi simulation (run System → Update)')
+            on = 'on' in out.split(':')[-1]
+            st, out = guest(f'/brick-emu/bin/wifi-ap {"stop" if on else "start force"}', 30)
+            if st:
+                raise RuntimeError(out.strip() or 'failed')
+            return 'off' if on else 'on'
+        self.work('Wi-Fi router', fn, lambda r, e: r and self.set_status(f'Wi-Fi router is now {r}'))
 
     # --- screenshot / shell
     def on_screenshot(self, *a):

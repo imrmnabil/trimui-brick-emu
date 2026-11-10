@@ -1,0 +1,11 @@
+#!/bin/sh
+# Emulator additions init, run by the rootfs preinit hook (85_brick_emu) right
+# after /brick-emu is mounted. Keep it quick: preinit waits for it.
+B=/brick-emu/bin
+# command channel for the host tools (manager): raw console -> non-interactive sh
+[ -c /dev/hvc2 ] && $B/brick-agent /dev/hvc2
+# simulated Wi-Fi: hide eth0 + the access-point radio before netifd starts,
+# start the access point once the system is up
+$B/wifi-ap setup >/dev/null 2>&1
+( i=0; while [ $i -lt 60 ] && ! pidof netifd >/dev/null; do sleep 1; i=$((i + 1)); done
+  $B/wifi-ap start ) </dev/null >/dev/null 2>&1 &

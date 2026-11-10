@@ -21,6 +21,6 @@ scripts/kconfig/merge_config.sh -m .config /work/kernel/brick.config >/dev/null
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig >/dev/null
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$(nproc) Image
 cp arch/arm64/boot/Image /work/out/Image
-for o in BRICK_HW MMC_SDHCI_PCI DRM_VIRTIO_GPU FB_DEVICE SND_HDA_INTEL GPIO_MOCKUP EXFAT_FS MMC_BLOCK_MINORS STRICT_DEVMEM MODULES FRAMEBUFFER_CONSOLE; do grep -E \"^(# )?CONFIG_\$o[= ]\" .config || echo \"CONFIG_\$o missing\"; done
+for o in BRICK_HW MAC80211_HWSIM FW_CFG_SYSFS MMC_SDHCI_PCI DRM_VIRTIO_GPU FB_DEVICE SND_HDA_INTEL GPIO_MOCKUP EXFAT_FS MMC_BLOCK_MINORS STRICT_DEVMEM MODULES FRAMEBUFFER_CONSOLE; do grep -E \"^(# )?CONFIG_\$o[= ]\" .config || echo \"CONFIG_\$o missing\"; done
 "
 echo "Kernel: $ROOT/out/Image"

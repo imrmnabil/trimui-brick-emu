@@ -11,12 +11,17 @@
 #   --log FILE      write the serial console to FILE instead of the terminal
 #   --serial-sock P serial console on unix socket P (with --log as transcript)
 #   --shell-sock P  root shell channel on unix socket P (see ./brick shell)
+#   --agent-sock P  command channel for host tools (manager) on unix socket P
 #   --emmc IMG      internal storage image (default out/emmc.img)
 #   --no-net        no network
+#   --wifi-ssid S   simulated Wi-Fi network name (default BrickNet)
+#   --wifi-pass P   its WPA2 password, 8-63 chars (default brick1234; "" = open network)
+#   --no-wifi       the simulated access point is off (the Brick finds no network)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/out"
-SD=""; GPU=soft; DISPLAY_MODE=""; EMMC=""; HEADLESS=0; MONITOR=""; LOG=""; NET=1; SCALE=""; SERSOCK=""; SHELLSOCK="$OUT/run/shell.sock"; COLOR=${BRICK_SKIN_COLOR:-black}
+SD=""; GPU=soft; DISPLAY_MODE=""; EMMC=""; HEADLESS=0; MONITOR=""; LOG=""; NET=1; SCALE=""; SERSOCK=""; SHELLSOCK="$OUT/run/shell.sock"; AGENTSOCK="$OUT/run/agent.sock"; COLOR=${BRICK_SKIN_COLOR:-black}
+WIFI=1; WIFI_SSID=${BRICK_WIFI_SSID:-BrickNet}; WIFI_PASS=${BRICK_WIFI_PASS-brick1234}
 while [ $# -gt 0 ]; do
   case "$1" in
     --gpu) GPU=$2; shift ;;
@@ -28,8 +33,12 @@ while [ $# -gt 0 ]; do
     --no-net) NET=0 ;;
     --serial-sock) SERSOCK=$2; shift ;;
     --shell-sock) SHELLSOCK=$2; shift ;;
+    --agent-sock) AGENTSOCK=$2; shift ;;
     --scale) SCALE=$2; shift ;;
     --color) COLOR=$2; shift ;;
+    --wifi-ssid) WIFI_SSID=$2; shift ;;
+    --wifi-pass) WIFI_PASS=$2; shift ;;
+    --no-wifi) WIFI=0 ;;
     -*) echo "unknown option $1"; exit 1 ;;
     *) SD=$1 ;;
   esac
@@ -60,6 +69,19 @@ args=(
   -device virtio-keyboard-pci
   -device qemu-xhci -device usb-tablet
 )
+# simulated Wi-Fi settings for the guest's access point (guest/files/bin/wifi-ap):
+# hex SSID + WPA2 PSK derived here, so no character can break the guest side
+WIFI_CFG=$(python3 -I -c '
+import hashlib, sys
+ssid, pw = sys.argv[1].encode(), sys.argv[2].encode()
+if not 1 <= len(ssid) <= 32: sys.exit("Wi-Fi network name must be 1-32 bytes")
+if pw and not 8 <= len(pw) <= 63: sys.exit("Wi-Fi password must be 8-63 characters (or empty for an open network)")
+print("ssid=" + ssid.hex() + (" psk=" + hashlib.pbkdf2_hmac("sha1", pw, ssid, 4096, 32).hex() if pw else ""))
+' "$WIFI_SSID" "$WIFI_PASS") || exit 1
+args+=(-fw_cfg "name=opt/brick/wifi,string=enabled=$WIFI $WIFI_CFG")
+if [ $WIFI = 1 ]; then
+  echo "Wi-Fi: network \"$WIFI_SSID\", ${WIFI_PASS:+password \"$WIFI_PASS\"}${WIFI_PASS:-open (no password)}" >&2
+fi
 if [ -f "$SD" ]; then
   args+=(-drive if=none,id=sd,file="$SD",format=raw -device sd-card,drive=sd,bus=/gpex-pcihost/pcie.0/sd-host/sd-bus)
 else
@@ -150,9 +172,10 @@ if [ $NET = 1 ]; then
 fi
 [ -n "$MONITOR" ] && args+=(-monitor unix:"$MONITOR",server,nowait)
 # hvc0 = optional console (--serial-sock), hvc1 = root shell channel
-mkdir -p "$(dirname "$SHELLSOCK")"; rm -f "$SHELLSOCK"
+mkdir -p "$(dirname "$SHELLSOCK")" "$(dirname "$AGENTSOCK")"; rm -f "$SHELLSOCK" "$AGENTSOCK"
 args+=(-device virtio-serial-pci,id=vser
-       -chardev socket,id=shell0,path="$SHELLSOCK",server=on,wait=off)
+       -chardev socket,id=shell0,path="$SHELLSOCK",server=on,wait=off
+       -chardev socket,id=agent0,path="$AGENTSOCK",server=on,wait=off)
 if [ -z "$SERSOCK" ]; then args+=(-chardev null,id=con0); fi
 if [ -n "$SERSOCK" ]; then
   # console on a virtio console (hvc0): robust for socket clients
@@ -164,7 +187,8 @@ else
   args+=(-serial mon:stdio)
   echo "this terminal is the Brick's serial console; Ctrl-a x quits the emulator" >&2
 fi
-args+=(-device virtconsole,chardev=con0,bus=vser.0,nr=0 -device virtconsole,chardev=shell0,bus=vser.0,nr=1)
+args+=(-device virtconsole,chardev=con0,bus=vser.0,nr=0 -device virtconsole,chardev=shell0,bus=vser.0,nr=1
+       -device virtconsole,chardev=agent0,bus=vser.0,nr=2)
 
 # QEMU: BRICK_QEMU=path overrides; otherwise the distro's QEMU if installed (built
 # against the host's GTK/virglrenderer/GPU driver - required for virgl on NVIDIA),

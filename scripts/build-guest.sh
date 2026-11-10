@@ -37,6 +37,8 @@ mkdir -p $S/glvnd && echo "{\"file_format_version\":\"1.0.0\",\"ICD\":{\"library
 $CC -O2 -o $S/bin/gltest /work/guest/tools/gltest.c -I/usr/include/SDL2 -D_REENTRANT -lSDL2 -lGLESv2 -lm
 $CC -O2 -o $S/bin/evtest /work/guest/tools/evtest.c
 $CC -O2 -o $S/bin/setsid /work/guest/tools/setsid.c
+$CC -O2 -Wall -o $S/bin/brick-netns /work/guest/tools/brick-netns.c
+$CC -O2 -Wall -o $S/bin/brick-agent /work/guest/tools/brick-agent.c
 ls $M | wc -l; du -sh $S
 '
 cp -r "$ROOT/guest/files/." "$STAGE/" 2>/dev/null || true

@@ -1,0 +1,118 @@
+#!/bin/sh
+# TrimUI Brick emulator: simulated Wi-Fi.
+#
+# Two mac80211_hwsim radios: wlan0 is the Brick's own Wi-Fi (driven by the
+# stock wpa_supplicant/udhcpc/MainUI exactly like the real one), wlan1 is a
+# virtual access point. The access point, together with the emulator's wired
+# link (eth0, QEMU user networking), lives in a hidden "router" network
+# namespace and is bridged to it, so a Brick connected to the Wi-Fi gets
+# DHCP/DNS/internet from QEMU - and the Brick itself sees only wlan0, like the
+# hardware (no Wi-Fi = no network).
+#
+#   wifi-ap setup     early boot: create the router namespace (eth0 + wlan1)
+#   wifi-ap start [force]  start the access point ("router on"; force: even if
+#                     the host started the emulator with --no-wifi)
+#   wifi-ap stop      stop it ("router off")
+#   wifi-ap status
+#   wifi-ap exec CMD  run CMD in the router namespace (the emulator's own link,
+#                     10.0.2.200 - used by the manager for file uploads)
+#
+# Settings from the host (QEMU fw_cfg opt/brick/wifi, see scripts/run.sh):
+#   "enabled=1 ssid=<hex> psk=<64 hex>"   (no psk = open network)
+NS=/brick-emu/bin/brick-netns
+PIDF=/dev/.brick-router          # devtmpfs: there from the first moment of boot
+D=/tmp/brick-wifi
+FWCFG=/sys/firmware/qemu_fw_cfg/by_name/opt/brick/wifi/raw
+ROUTER_IP=10.0.2.200
+
+log() { echo "wifi-ap: $*" > /dev/kmsg 2>/dev/null; echo "wifi-ap: $*" >&2; }
+router() { [ -f $PIDF ] && cat $PIDF; }
+in_router() { $NS exec "$(router)" "$@"; }
+
+setup() {
+	[ -f $PIDF ] && kill -0 "$(router)" 2>/dev/null && return 0
+	[ -d /sys/class/net/wlan1 ] && [ -d /sys/class/net/eth0 ] || { log "no wlan1/eth0, Wi-Fi simulation off"; return 1; }
+	phy=$(cat /sys/class/net/wlan1/phy80211/name)
+	# the radio's rfkill switch (hidden from sysfs once the phy has moved):
+	# keep it unblocked whatever the firmware does with its own Wi-Fi switch
+	rf=$(ls -d /sys/class/ieee80211/$phy/rfkill* 2>/dev/null | head -1)
+	[ -n "$rf" ] && $NS rfkill-guard "${rf##*rfkill}" "$0" revive
+	pid=$($NS new) || return 1
+	$NS move eth0 "$pid" || return 1
+	iw phy "$phy" set netns "$pid" || return 1
+	echo "$pid" > $PIDF
+	in_router sh -c "
+		ip link set lo up
+		brctl addbr br0 && brctl setfd br0 0 && brctl stp br0 off
+		brctl addif br0 eth0
+		ip link set eth0 up && ip link set br0 up
+		ip addr add $ROUTER_IP/24 dev br0
+		ip route add default via 10.0.2.2"
+	log "router namespace ready (pid $pid)"
+}
+
+start() {
+	setup || return 1
+	[ -f $D/apd.pid ] && kill -0 "$(cat $D/apd.pid)" 2>/dev/null && return 0
+	enabled=1; ssid=427269636b4e6574; psk=   # default: open "BrickNet"
+	if [ -r $FWCFG ]; then
+		for kv in $(cat $FWCFG); do
+			case "$kv" in
+				enabled=*) enabled=${kv#enabled=} ;;
+				ssid=*) ssid=${kv#ssid=} ;;
+				psk=*) psk=${kv#psk=} ;;
+			esac
+		done
+	fi
+	[ "$enabled" = 1 ] || [ "$1" = force ] || { log "access point disabled by the host"; return 0; }
+	mkdir -p $D
+	{
+		echo "interface=wlan1"
+		echo "bridge=br0"
+		echo "driver=nl80211"
+		echo "ssid2=$ssid"
+		echo "hw_mode=g"
+		echo "channel=6"
+		echo "ieee80211n=1"
+		echo "wmm_enabled=1"
+		echo "ctrl_interface=$D/ctrl"
+		if [ -n "$psk" ]; then
+			echo "wpa=2"
+			echo "wpa_key_mgmt=WPA-PSK"
+			echo "rsn_pairwise=CCMP"
+			echo "wpa_psk=$psk"
+		fi
+	} > $D/hostapd.conf
+	# own copy of the binary: the firmware's hotspot code runs "killall hostapd"
+	cp /usr/sbin/hostapd $D/brick-apd
+	in_router $D/brick-apd -B -P $D/apd.pid $D/hostapd.conf > $D/apd.log 2>&1 \
+		&& log "access point up" || { log "hostapd failed: $(tail -3 $D/apd.log)"; return 1; }
+}
+
+stop() {
+	[ -f $D/apd.pid ] && kill "$(cat $D/apd.pid)" 2>/dev/null
+	rm -f $D/apd.pid
+	log "access point stopped"
+}
+
+status() {
+	if [ -f $D/apd.pid ] && kill -0 "$(cat $D/apd.pid)" 2>/dev/null; then
+		echo "access point: on"
+	else
+		echo "access point: off"
+	fi
+	echo "brick wlan0: $(ifconfig wlan0 2>/dev/null | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p')"
+}
+
+case "$1" in
+	setup) setup ;;
+	start) start "$2" ;;
+	stop) stop ;;
+	restart) stop; start ;;
+	revive)  # the radio had been switched off (interfaces closed): bring the AP back
+		sleep 1
+		if [ -f $D/apd.pid ]; then log "radio was switched off, restarting the access point"; stop; start; fi ;;
+	status) status ;;
+	exec) shift; in_router "$@" ;;
+	*) sed -n 2,25p "$0"; exit 1 ;;
+esac
