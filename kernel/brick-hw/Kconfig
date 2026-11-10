@@ -1,0 +1,7 @@
+config BRICK_HW
+	bool "TrimUI Brick hardware personality (QEMU emulator)"
+	depends on INPUT && POWER_SUPPLY
+	help
+	  Emulates TrimUI Brick specific hardware interfaces (PIO buttons via
+	  /dev/mem, PMIC power key, battery, LED/motor sysfs, /dev/disp) so the
+	  stock firmware userspace runs under QEMU.

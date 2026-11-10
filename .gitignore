@@ -1,0 +1,9 @@
+# downloaded / generated - recreated by ./brick setup, fetch, sd
+/firmware/
+/cfw/
+/out/
+/build/
+/refs/
+*.img
+*.part
+__pycache__/

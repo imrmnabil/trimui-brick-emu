@@ -1,0 +1,16 @@
+#!/bin/sh
+# TrimUI Brick emulator: mount the emulator additions disk (Mesa + EGL shim)
+# and, if the emulator provides a debug channel (/dev/hvc1), keep a root
+# shell on it (used by `./brick shell` and the test harness).
+brick_emu_mount() {
+	mkdir -p /brick-emu
+	grep -q " /brick-emu " /proc/mounts || \
+		mount -t ext4 -o ro /dev/vda /brick-emu
+	if [ -c /dev/hvc1 ]; then
+		( while :; do
+			/brick-emu/bin/setsid /bin/ash -c 'exec /bin/ash </dev/hvc1 >/dev/hvc1 2>&1'
+			sleep 1
+		  done ) </dev/null >/dev/null 2>&1 &
+	fi
+}
+boot_hook_add preinit_main brick_emu_mount
