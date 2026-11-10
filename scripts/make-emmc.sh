@@ -4,6 +4,7 @@
 #   --update-rootfs  only rewrite the rootfs partition of an existing image
 #                    (keeps settings/overlay in rootfs_data and UDISK)
 set -euo pipefail
+export PATH="$PATH:/usr/sbin:/sbin"   # disk tools (not on a user PATH on Debian)
 UPDATE=0; [ "${1:-}" = --update-rootfs ] && { UPDATE=1; shift; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="${BRICK_DATA:-$ROOT}"

@@ -13,6 +13,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 S="$ROOT/scripts"
+# disk tools live in /usr/sbin, which is not on a normal user's PATH on Debian
+export PATH="$PATH:/usr/sbin:/sbin"
 
 # user data (images, downloads): BRICK_DATA, default the source tree
 DATA="${BRICK_DATA:-$ROOT}"; export BRICK_DATA="$DATA"
@@ -27,7 +29,7 @@ case "${1:-}" in
   setup)
     shift
     if [ -n "${BRICK_ASSETS:-}" ]; then
-      # prebuilt emulator (AppImage): only the stock firmware + internal storage
+      # prebuilt emulator (installed package): only the stock firmware + internal storage
       [ -f "$DATA/firmware/unpacked/rootfs.fex" ] && [ $# -eq 0 ] || fetch_firmware "${1:-}"
       [ -f "$DATA/out/emmc.img" ] || "$S/make-emmc.sh"
       [ -z "${BRICK_VERSION:-}" ] || echo "$BRICK_VERSION" > "$DATA/out/.installed-version"

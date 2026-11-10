@@ -20,7 +20,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # user data (images, sockets) and the read-only emulator assets (kernel,
-# additions disk) - separate in the AppImage, both in out/ in a source tree
+# additions disk) - separate in an installed package, both in out/ in a source tree
 OUT="${BRICK_DATA:-$ROOT}/out"
 ASSETS="${BRICK_ASSETS:-$OUT}"
 PY="${BRICK_PYTHON:-python3}"

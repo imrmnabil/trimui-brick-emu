@@ -18,14 +18,13 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # code (read-only in the AppImage)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # code (read-only when installed)
 DATA = os.environ.get('BRICK_DATA', ROOT)                               # images, downloads
 OUT = os.path.join(DATA, 'out')
 ASSETS = os.environ.get('BRICK_ASSETS', OUT)                            # kernel + additions disk
-APPIMAGE = os.environ.get('APPIMAGE')                                   # set when run from the AppImage
 BRICK = os.path.join(ROOT, 'brick')
 VERSION = os.environ.get('BRICK_VERSION', 'dev')
-PACKAGED = 'BRICK_ASSETS' in os.environ                                # AppImage / RPM: prebuilt emulator
+PACKAGED = 'BRICK_ASSETS' in os.environ                                # installed package: prebuilt emulator
 SYSTEM_INSTALL = os.path.realpath(ROOT).startswith('/usr/')             # RPM: menu entry already there
 RUN = os.path.join(OUT, 'run')
 MON_SOCK = os.path.join(RUN, 'mon.sock')
@@ -36,17 +35,6 @@ QEMU_LOG = os.path.join(RUN, 'qemu.log')
 CONFIG = os.path.join(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'brick-emu', 'manager.json')
 GUEST_SD = '/mnt/SDCARD'
 SIZES = ['4G', '8G', '16G', '32G', '64G', '128G']
-
-
-def host_env():
-    """Environment for host programs (terminal, ...): without the AppImage's
-    GTK runtime settings (set by its python wrapper), originals restored."""
-    env = dict(os.environ)
-    for v in env.pop('BRICK_GUI_ENV', '').split():
-        env.pop(v, None)
-        if 'BRICK_ORIG_' + v in env:
-            env[v] = env.pop('BRICK_ORIG_' + v)
-    return env
 
 
 def human(n):
@@ -799,7 +787,7 @@ class Manager(Gtk.Window):
                      ['konsole', '-e'], ['xfce4-terminal', '-x'], ['alacritty', '-e'], ['kitty'],
                      ['foot'], ['xterm', '-e']):
             if shutil.which(term[0]):
-                subprocess.Popen(term + cmd, start_new_session=True, env=host_env())
+                subprocess.Popen(term + cmd, start_new_session=True)
                 return
         self.msg('No terminal emulator found', secondary='Run ./brick shell in a terminal.')
 
@@ -1199,7 +1187,7 @@ class Manager(Gtk.Window):
         path = os.path.join(apps, 'trimui-brick-emu.desktop')
         with open(path, 'w') as f:
             f.write('[Desktop Entry]\nType=Application\nName=TrimUI Brick\nComment=TrimUI Brick emulator\n'
-                    f'Exec={shlex.quote(APPIMAGE) if APPIMAGE else shlex.quote(BRICK) + " manager"}\nIcon=input-gaming\n'
+                    f'Exec={shlex.quote(BRICK)} manager\nIcon=input-gaming\n'
                     'Terminal=false\nCategories=Game;Emulator;\n')
         self.set_status(f'Added to the applications menu ({path})')
 

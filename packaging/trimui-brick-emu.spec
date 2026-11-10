@@ -5,7 +5,8 @@ Name:           trimui-brick-emu
 Version:        %{brick_version}
 Release:        1%{?dist}
 Summary:        TrimUI Brick handheld emulator (runs the stock firmware and NextUI / spruceOS)
-License:        GPL-2.0-only AND MIT
+# own code GPL-2.0-only; bundled guest kernel / arm64 Debian libraries: see THIRD_PARTY.md
+License:        GPL-2.0-only AND MIT AND Apache-2.0 WITH LLVM-exception AND Apache-2.0 AND LGPL-2.1-or-later AND (LGPL-3.0-or-later OR GPL-2.0-or-later) AND BSD-3-Clause AND ISC AND Zlib
 URL:            https://github.com/imrmnabil/trimui-brick-emu
 Source0:        %{name}-%{version}.tar
 BuildArch:      noarch
@@ -58,6 +59,7 @@ install -D -m 0644 packaging/trimui-brick-emu.desktop %{buildroot}%{_datadir}/ap
 install -D -m 0644 packaging/trimui-brick-emu.png %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/%{name}.png
 
 %files
+%license LICENSE THIRD_PARTY.md
 %{_bindir}/%{name}
 %{_datadir}/%{name}
 %{_datadir}/applications/%{name}.desktop

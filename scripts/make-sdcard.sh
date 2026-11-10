@@ -6,6 +6,7 @@
 # Needs mkfs.vfat (dosfstools), mtools and 7z; without them on the host the
 # builder container is used.
 set -euo pipefail
+export PATH="$PATH:/usr/sbin:/sbin"   # disk tools (not on a user PATH on Debian)
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="${BRICK_DATA:-$ROOT}"
 PY="${BRICK_PYTHON:-python3}"
@@ -21,7 +22,7 @@ command -v mkfs.vfat >/dev/null && command -v mcopy >/dev/null && NATIVE=1
 for src in "$@"; do
   case "$src" in
     *.zip) "$PY" -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$src" "$STAGE" ;;
-    *.7z) 7z x -y -o"$STAGE" "$src" >/dev/null ;;
+    *.7z) "$(command -v 7z || command -v 7zz || echo 7z)" x -y -o"$STAGE" "$src" >/dev/null ;;
     *) cp -a "$src"/. "$STAGE"/ ;;
   esac
 done

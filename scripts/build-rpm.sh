@@ -14,7 +14,7 @@ S="$T/src/trimui-brick-emu-$VERSION"
 cd "$ROOT"
 cp -r --parents brick scripts/run.sh scripts/make-emmc.sh scripts/make-sdcard.sh tools/*.py \
   guest/rootfs-overlay packaging/trimui-brick-emu packaging/trimui-brick-emu.desktop \
-  packaging/trimui-brick-emu.png README.md "$S/"
+  packaging/trimui-brick-emu.png README.md LICENSE THIRD_PARTY.md "$S/"
 mkdir -p "$S/assets"
 cp out/Image "$S/assets/"
 cp --sparse=always out/brick-emu.img "$S/assets/"

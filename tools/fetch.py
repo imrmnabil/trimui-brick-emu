@@ -15,8 +15,8 @@ CFW = {'nextui': ('LoveRetro/NextUI', r'NextUI-[0-9-]*-base\.zip$'),
 
 
 def _ssl_context():
-    """TLS context with the host's CA certificates: a bundled Python/OpenSSL
-    (AppImage) only knows the build distro's certificate path."""
+    """TLS context with the system's CA certificates, wherever the distro
+    keeps them (a Python/OpenSSL built elsewhere may not know the path)."""
     ctx = ssl.create_default_context()
     if not ctx.get_ca_certs():
         for f in ('/etc/ssl/certs/ca-certificates.crt',            # Debian, Ubuntu, Arch, Gentoo
