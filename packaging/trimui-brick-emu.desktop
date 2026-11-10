@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TrimUI Brick Emulator
+GenericName=Handheld emulator
+Comment=Run the TrimUI Brick firmware and custom firmwares (NextUI, spruceOS) on your PC
+Exec=AppRun
+Icon=trimui-brick-emu
+Terminal=false
+Categories=Game;Emulator;
+Keywords=TrimUI;Brick;NextUI;spruceOS;handheld;retro;

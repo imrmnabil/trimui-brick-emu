@@ -6,11 +6,12 @@
 set -euo pipefail
 UPDATE=0; [ "${1:-}" = --update-rootfs ] && { UPDATE=1; shift; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FW="$ROOT/firmware/unpacked"
-OUT=${1:-"$ROOT/out/emmc.img"}
+DATA="${BRICK_DATA:-$ROOT}"
+FW="$DATA/firmware/unpacked"
+OUT=${1:-"$DATA/out/emmc.img"}
 SIZE=${EMMC_SIZE:-8589934592}   # 8 GiB (QEMU needs a power-of-two card size)
-[ -f "$FW/rootfs.fex" ] || { echo "run tools/awimg_unpack.py first"; exit 1; }
-WORK="$ROOT/build/emmc"; mkdir -p "$WORK" "$(dirname "$OUT")"
+[ -f "$FW/rootfs.fex" ] || { echo "no stock firmware in $FW - run ./brick fetch firmware first"; exit 1; }
+WORK="$DATA/build/emmc"; mkdir -p "$WORK" "$(dirname "$OUT")"
 
 # --- rootfs: stock image + emulator hooks
 cp "$FW/rootfs.fex" "$WORK/rootfs.img"
@@ -30,6 +31,7 @@ debugfs -w -f "$DBG" "$WORK/rootfs.img" 2>&1 | grep -vE "^debugfs|^rm: File not 
 e2fsck -fy "$WORK/rootfs.img" >/dev/null 2>&1 || true
 
 put() { dd if="$2" of="$OUT" bs=512 seek="$1" conv=notrunc,sparse status=none; }
+trap 'rm -f "$WORK/rootfs.img"' EXIT   # 560 MB scratch copy
 if [ $UPDATE = 1 ] && [ -f "$OUT" ]; then
   put 101376 "$WORK/rootfs.img"
   echo "rootfs partition updated in $OUT"
@@ -64,7 +66,11 @@ put 101376  "$WORK/rootfs.img"
 mkpart() {  # start end label
   local f="$WORK/$3.img"; rm -f "$f"
   truncate -s $(( ($2 - $1 + 1) * 512 )) "$f"
-  mke2fs -q -t ext4 -m 0 -O ^metadata_csum,^metadata_csum_seed,^orphan_file -E root_owner=0:0 -L "$3" "$f"
+  # explicit feature list: independent of the host's /etc/mke2fs.conf (a
+  # bundled/older mke2fs may not know features newer distros enable)
+  MKE2FS_CONFIG=/dev/null mke2fs -q -b 4096 -I 256 -m 0 \
+    -O none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize \
+    -E root_owner=0:0 -L "$3" "$f"
   put "$1" "$f"; rm -f "$f"
 }
 mkpart 1248256 5442559 rootfs_data

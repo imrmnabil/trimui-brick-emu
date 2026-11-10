@@ -33,7 +33,29 @@ The stock rootfs is used as-is except for: a preinit hook that mounts the
 read-only *additions* disk at `/brick-emu`, and the PowerVR `libEGL/libGLES*`
 names pointing at the shim/Mesa there.
 
-## Requirements
+## Install (AppImage)
+
+Download `TrimUI_Brick_Emulator-VERSION-x86_64.AppImage`, make it executable
+and run it:
+
+```bash
+chmod +x TrimUI_Brick_Emulator-*-x86_64.AppImage
+./TrimUI_Brick_Emulator-*-x86_64.AppImage            # opens the manager
+```
+
+On first start the manager downloads the stock firmware from TrimUI's GitHub
+releases (it is not included) and sets up the emulated internal storage. Then
+System → Get NextUI / spruceOS and "New SD card…". Everything is stored in
+`~/.local/share/trimui-brick-emu` (`BRICK_DATA` overrides). The command line
+works too: `./TrimUI_Brick_Emulator-*.AppImage run|shell|sd|fetch|reset …`.
+
+Needs a 64-bit x86 Linux from 2022 or newer (glibc 2.35+: Ubuntu 22.04,
+Debian 12, Fedora 36, …) with a desktop and a working OpenGL driver. Nothing
+else to install.
+
+Building the AppImage: `scripts/build-appimage.sh` (Docker).
+
+## Requirements (building from source)
 
 * Linux host, x86_64 or aarch64 (tested: Fedora 44 x86_64; earlier WSL2 on
   aarch64), Docker, `curl`, `7z`, `python3`, `sgdisk`, `sfdisk`,
@@ -138,7 +160,7 @@ device, drawn as a clickable skin (`--color black|grey|white`, `--scale F`).
 
 QEMU renders offscreen (on the host GPU with `--gpu virgl`) and the window
 reads the screen from QEMU's VNC server on localhost (`tools/brick-window.py`,
-needs python3-gobject/GTK 3, pycairo, numpy). `--display gtk|sdl|vnc` gives the
+needs python3-gobject/GTK 3 and pycairo). `--display gtk|sdl|vnc` gives the
 plain QEMU window or VNC instead.
 
 ## Controls

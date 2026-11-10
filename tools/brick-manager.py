@@ -18,8 +18,13 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, 'out')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # code (read-only in the AppImage)
+DATA = os.environ.get('BRICK_DATA', ROOT)                               # images, downloads
+OUT = os.path.join(DATA, 'out')
+ASSETS = os.environ.get('BRICK_ASSETS', OUT)                            # kernel + additions disk
+APPIMAGE = os.environ.get('APPIMAGE')                                   # set when run from the AppImage
+BRICK = os.path.join(ROOT, 'brick')
+VERSION = os.environ.get('BRICK_VERSION', 'dev')
 RUN = os.path.join(OUT, 'run')
 MON_SOCK = os.path.join(RUN, 'mon.sock')
 SHELL_SOCK = os.path.join(RUN, 'shell.sock')
@@ -29,6 +34,17 @@ QEMU_LOG = os.path.join(RUN, 'qemu.log')
 CONFIG = os.path.join(os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'brick-emu', 'manager.json')
 GUEST_SD = '/mnt/SDCARD'
 SIZES = ['4G', '8G', '16G', '32G', '64G', '128G']
+
+
+def host_env():
+    """Environment for host programs (terminal, ...): without the AppImage's
+    GTK runtime settings (set by its python wrapper), originals restored."""
+    env = dict(os.environ)
+    for v in env.pop('BRICK_GUI_ENV', '').split():
+        env.pop(v, None)
+        if 'BRICK_ORIG_' + v in env:
+            env[v] = env.pop('BRICK_ORIG_' + v)
+    return env
 
 
 def human(n):
@@ -105,7 +121,9 @@ def guest(cmd, timeout=30):
             buf += d.decode(errors='replace')
             m = re.search(rf'^__S{tag}__\r?\n(.*?)^__E{tag}__:(\d+)\r?$', buf, re.M | re.S)
             if m:
-                return int(m.group(2)), m.group(1).replace('\r', '')
+                # the channel is a tty: drop colour / terminal escape sequences
+                out = re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', m.group(1)).replace('\r', '')
+                return int(m.group(2)), out
     finally:
         s.close()
     raise TimeoutError(f'guest command timed out: {cmd[:60]}')
@@ -282,7 +300,7 @@ class GuestSD:
         return out
 
     def list(self, d):
-        out = self.run(f'ls -la {sq(d)}')
+        out = self.run(f'ls -la {sq(d)} | cat')     # not a tty: no colours
         res = []
         for line in out.split('\n'):
             f = line.split(None, 8)
@@ -368,6 +386,7 @@ class Manager(Gtk.Window):
         self.log_pos = 0
 
         hb = Gtk.HeaderBar(show_close_button=True, title='TrimUI Brick')
+        self.set_icon_name('input-gaming')
         self.set_titlebar(hb)
         self.hb = hb
         self.b_start = self.hbutton('media-playback-start-symbolic', 'Start', self.on_start, 'suggested-action')
@@ -379,7 +398,7 @@ class Manager(Gtk.Window):
         menu = Gtk.Menu()
         for label, cb in (('Force stop', self.on_force_stop), ('Sleep / wake (power button)', self.on_sleep),
                           ('Wi-Fi router on / off', self.on_router_toggle),
-                          ('Open emulator folder', lambda *a: self.open_uri(ROOT))):
+                          ('Open data folder', lambda *a: self.open_uri(DATA))):
             it = Gtk.MenuItem(label=label)
             it.connect('activate', cb)
             menu.append(it)
@@ -575,8 +594,11 @@ class Manager(Gtk.Window):
     # --- start / stop
     def on_start(self, *a):
         sd = self.sd_combo.get_active_id()
-        if not os.path.exists(os.path.join(OUT, 'Image')):
+        if not os.path.exists(os.path.join(ASSETS, 'Image')):
             self.msg('The emulator is not built yet', secondary='Run ./brick setup in a terminal first.')
+            return
+        if not os.path.exists(os.path.join(OUT, 'emmc.img')):
+            self.first_run()
             return
         self.save_cfg()
         args = [os.path.join(ROOT, 'scripts', 'run.sh')]
@@ -594,7 +616,7 @@ class Manager(Gtk.Window):
         self.log_pos = 0
         self.console_buf.set_text('')
         with open(QEMU_LOG, 'w') as log:
-            self.proc = subprocess.Popen(args, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            self.proc = subprocess.Popen(args, cwd=DATA, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                          start_new_session=True)
         self.set_status('Starting the Brick…')
         self.b_start.set_sensitive(False)
@@ -608,6 +630,23 @@ class Manager(Gtk.Window):
                 self.update_buttons()
             return False
         GLib.timeout_add(3000, check)
+
+    def first_run(self):
+        if self.busy:
+            return
+        if not self.confirm('Set up the emulated Brick?',
+                            'The Brick runs TrimUI\'s own firmware, which is not included. It is downloaded now '
+                            f'from TrimUI\'s GitHub releases (about 120 MB) and installed on the emulated internal '
+                            f'storage in {OUT}.', 'Download and set up'):
+            return
+        self.task('Setting up the Brick', [BRICK, 'setup'], lambda r, e: e or self.after_setup())
+
+    def after_setup(self):
+        self.update_buttons()
+        if not [i for i in os.listdir(OUT) if i.endswith('.img') and not i.startswith(('emmc', 'brick-emu'))]:
+            self.msg('The Brick is ready', secondary='Next: System → Get NextUI (or spruceOS), then "New SD card…" '
+                     'to put it on a card. You can also start the stock firmware right away.')
+        self.nb.set_current_page(2)
 
     def wait_stopped(self, secs):
         end = time.time() + secs
@@ -738,8 +777,8 @@ class Manager(Gtk.Window):
             v.start()
             if not got.wait(10) or closed or v.fb is None:
                 raise RuntimeError('no picture from the emulator')
-            h, w, _ = v.fb.shape
-            img = cairo.ImageSurface.create_for_data(memoryview(v.fb.copy()).cast('B'), cairo.FORMAT_RGB24, w, h, w * 4)
+            w, h = v.w, v.h
+            img = cairo.ImageSurface.create_for_data(bytearray(v.fb), cairo.FORMAT_RGB24, w, h, w * 4)
             pics = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES) or os.path.expanduser('~')
             d = os.path.join(pics, 'TrimUI Brick')
             os.makedirs(d, exist_ok=True)
@@ -758,7 +797,7 @@ class Manager(Gtk.Window):
                      ['konsole', '-e'], ['xfce4-terminal', '-x'], ['alacritty', '-e'], ['kitty'],
                      ['foot'], ['xterm', '-e']):
             if shutil.which(term[0]):
-                subprocess.Popen(term + cmd, start_new_session=True)
+                subprocess.Popen(term + cmd, start_new_session=True, env=host_env())
                 return
         self.msg('No terminal emulator found', secondary='Run ./brick shell in a terminal.')
 
@@ -837,7 +876,7 @@ class Manager(Gtk.Window):
                 imgs.append(p)
         self.sd_combo.remove_all()
         for p in imgs:
-            label = os.path.relpath(p, ROOT) if p.startswith(ROOT + os.sep) else p
+            label = os.path.relpath(p, DATA) if p.startswith(DATA + os.sep) else p
             self.sd_combo.append(p, f'{label}  ({human(os.path.getsize(p))})')
         if not imgs:
             self.sd_combo.append('', '(no SD card image — create one with "New SD card…")')
@@ -1106,13 +1145,15 @@ class Manager(Gtk.Window):
             page.pack_start(Gtk.Separator(), False, False, 0)
 
         section('Custom firmware', 'Download the latest release into cfw/, to put on a new SD card.',
-                [('Get NextUI', lambda *a: self.task('Downloading NextUI', ['./brick', 'fetch', 'nextui']), None),
-                 ('Get spruceOS', lambda *a: self.task('Downloading spruceOS', ['./brick', 'fetch', 'spruce']), None)])
+                [('Get NextUI', lambda *a: self.task('Downloading NextUI', [BRICK, 'fetch', 'nextui']), None),
+                 ('Get spruceOS', lambda *a: self.task('Downloading spruceOS', [BRICK, 'fetch', 'spruce']), None)])
         section('New SD card', 'Create an empty SD card image or one with a CFW installed on it.',
                 [('New SD card…', self.on_new_sd, 'suggested-action')])
-        section('Update emulator', 'Rebuild the kernel and emulator add-ons and refresh the system partition. '
-                'Settings and internal storage are kept. Takes several minutes.',
-                [('Update', lambda *a: self.stopped_task('Updating the emulator', ['./brick', 'update']), None)])
+        section('Update emulator', ('Refresh the system partition of the internal storage (needed after '
+                'an AppImage update; done automatically on start). ' if APPIMAGE else
+                'Rebuild the kernel and emulator add-ons and refresh the system partition. Takes several minutes. ')
+                + 'Settings and internal storage are kept.',
+                [('Update', lambda *a: self.stopped_task('Updating the emulator', [BRICK, 'update']), None)])
         section('Factory reset', 'Wipe the internal storage (eMMC) back to the stock firmware state. '
                 'SD cards are not touched.',
                 [('Reset…', self.on_reset, 'destructive-action')])
@@ -1126,7 +1167,7 @@ class Manager(Gtk.Window):
         self.console_append(f'\n$ {" ".join(cmd)}\n')
 
         def fn(report):
-            p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            p = subprocess.Popen(cmd, cwd=DATA, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  stdin=subprocess.DEVNULL, text=True, bufsize=1)
             for line in p.stdout:
                 GLib.idle_add(lambda l=line: self.console_append(l) and False)
@@ -1147,7 +1188,7 @@ class Manager(Gtk.Window):
         if self.confirm('Factory reset the internal storage?',
                         'All settings and data stored on the emulated eMMC are erased. SD cards are kept.',
                         'Reset', destructive=True):
-            self.task('Factory reset', ['./brick', 'reset'])
+            self.task('Factory reset', [BRICK, 'reset'])
 
     def on_desktop_entry(self, *a):
         apps = os.path.join(os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share')), 'applications')
@@ -1155,7 +1196,7 @@ class Manager(Gtk.Window):
         path = os.path.join(apps, 'trimui-brick-emu.desktop')
         with open(path, 'w') as f:
             f.write('[Desktop Entry]\nType=Application\nName=TrimUI Brick\nComment=TrimUI Brick emulator\n'
-                    f'Exec={shlex.quote(os.path.join(ROOT, "brick"))} manager\nIcon=input-gaming\n'
+                    f'Exec={shlex.quote(APPIMAGE) if APPIMAGE else shlex.quote(BRICK) + " manager"}\nIcon=input-gaming\n'
                     'Terminal=false\nCategories=Game;Emulator;\n')
         self.set_status(f'Added to the applications menu ({path})')
 
@@ -1178,7 +1219,7 @@ class Manager(Gtk.Window):
         cfw_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         g.attach(cfw_box, 1, 2, 1, 1)
         checks = []
-        cfw_dir = os.path.join(ROOT, 'cfw')
+        cfw_dir = os.path.join(DATA, 'cfw')
         found = sorted(f for f in os.listdir(cfw_dir) if f.endswith(('.zip', '.7z'))) if os.path.isdir(cfw_dir) else []
         for i, f in enumerate(found):
             c = Gtk.CheckButton(label=f, active=(i == len(found) - 1))
@@ -1224,6 +1265,8 @@ def main():
     win = Manager()
     win.show_all()
     win.update_buttons()
+    if os.path.exists(os.path.join(ASSETS, 'Image')) and not os.path.exists(os.path.join(OUT, 'emmc.img')):
+        GLib.idle_add(lambda: win.first_run() and False)
     Gtk.main()
 
 

@@ -7,3 +7,4 @@
 *.img
 *.part
 __pycache__/
+/dist/

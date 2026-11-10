@@ -14,30 +14,30 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 S="$ROOT/scripts"
 
+# user data (images, downloads): BRICK_DATA, default the source tree
+DATA="${BRICK_DATA:-$ROOT}"; export BRICK_DATA="$DATA"
+PY="${BRICK_PYTHON:-python3}"
+
 fetch_firmware() {
-  local tag=${1:-v1.1.1-20251126}
-  local dl="$ROOT/firmware/download"
-  mkdir -p "$dl"
-  local zip
-  zip=$(curl -sL "https://github.com/trimui/firmware_brick/releases/expanded_assets/$tag" |
-        grep -oE '/trimui/firmware_brick/releases/download/[^"]*firmware[^"]*\.zip' | grep -v sd_recovery | head -1)
-  [ -n "$zip" ] || { echo "no firmware zip found for $tag"; exit 1; }
-  local f="$dl/$(basename "$zip")"
-  [ -f "$f" ] || { echo "downloading $(basename "$zip")"; curl -L --fail -o "$f.part" "https://github.com$zip" && mv "$f.part" "$f"; }
-  rm -rf "$ROOT/firmware/stock" "$ROOT/firmware/unpacked"
-  mkdir -p "$ROOT/firmware/stock"
-  7z x -y -o"$ROOT/firmware/stock" "$f" >/dev/null
-  python3 -I "$ROOT/tools/awimg_unpack.py" "$(ls "$ROOT"/firmware/stock/*.awimg | head -1)" "$ROOT/firmware/unpacked" >/dev/null
-  echo "stock firmware $tag unpacked"
+  rm -rf "$DATA/firmware/stock" "$DATA/firmware/unpacked"
+  "$PY" -I "$ROOT/tools/fetch.py" firmware ${1:+"$1"} "$DATA"
 }
 
 case "${1:-}" in
   setup)
     shift
-    [ -f "$ROOT/firmware/unpacked/rootfs.fex" ] && [ $# -eq 0 ] || fetch_firmware "${1:-}"
+    if [ -n "${BRICK_ASSETS:-}" ]; then
+      # prebuilt emulator (AppImage): only the stock firmware + internal storage
+      [ -f "$DATA/firmware/unpacked/rootfs.fex" ] && [ $# -eq 0 ] || fetch_firmware "${1:-}"
+      [ -f "$DATA/out/emmc.img" ] || "$S/make-emmc.sh"
+      [ -z "${BRICK_VERSION:-}" ] || echo "$BRICK_VERSION" > "$DATA/out/.appimage-version"
+      echo "Ready."
+      exit 0
+    fi
+    [ -f "$DATA/firmware/unpacked/rootfs.fex" ] && [ $# -eq 0 ] || fetch_firmware "${1:-}"
     docker image inspect brick-emu-builder >/dev/null 2>&1 || docker build -t brick-emu-builder "$ROOT/docker"
     # distro QEMU is preferred by run.sh; the bundled build is the fallback
-    command -v qemu-system-aarch64 >/dev/null || [ -x "$ROOT/out/qemu/bin/qemu-system-aarch64" ] || "$S/build-qemu.sh"
+    command -v qemu-system-aarch64 >/dev/null || [ -x "$DATA/out/qemu/bin/qemu-system-aarch64" ] || "$S/build-qemu.sh"
     "$S/build-kernel.sh"
     "$S/build-guest.sh"
     "$S/make-emmc.sh"
@@ -46,27 +46,19 @@ case "${1:-}" in
     echo "then: ./brick run"
     ;;
   sd)   shift; exec "$S/make-sdcard.sh" "$@" ;;
-  shell) exec python3 -I "$ROOT/tools/shell.py" "$ROOT/out/run/shell.sock" ;;
+  shell) exec "$PY" -I "$ROOT/tools/shell.py" "$DATA/out/run/shell.sock" ;;
   fetch)
     case "${2:-}" in
-      nextui) repo=LoveRetro/NextUI; pat='NextUI-[0-9-]*-base\.zip' ;;
-      spruce) repo=spruceUI/spruceOS; pat='spruceV[0-9.]*\.7z' ;;
-      *) echo "usage: ./brick fetch nextui|spruce"; exit 1 ;;
+      nextui|spruce) exec "$PY" -I "$ROOT/tools/fetch.py" cfw "$2" "$DATA" ;;
+      firmware) fetch_firmware "${3:-}" ;;
+      *) echo "usage: ./brick fetch nextui|spruce|firmware"; exit 1 ;;
     esac
-    tag=$(curl -sI "https://github.com/$repo/releases/latest" | grep -i '^location' | sed 's|.*/tag/||' | tr -d '\r')
-    asset=$(curl -sL "https://github.com/$repo/releases/expanded_assets/$tag" | grep -oE "/$repo/releases/download/[^\"]*/$pat" | head -1)
-    [ -n "$asset" ] || { echo "no release asset found for $repo $tag"; exit 1; }
-    mkdir -p "$ROOT/cfw"; f="$ROOT/cfw/$(basename "$asset")"
-    if [ ! -f "$f" ]; then
-      curl -L --fail -o "$f.part" "https://github.com$asset"
-      mv -f "$f.part" "$f"
-    fi
-    echo "$f"
     ;;
   update)
-    "$S/build-kernel.sh"; "$S/build-guest.sh"; "$S/make-emmc.sh" --update-rootfs ;;
+    [ -n "${BRICK_ASSETS:-}" ] || { "$S/build-kernel.sh"; "$S/build-guest.sh"; }
+    "$S/make-emmc.sh" --update-rootfs ;;
   run)  shift; exec "$S/run.sh" "$@" ;;
-  manager|gui) exec python3 -I "$ROOT/tools/brick-manager.py" ;;
+  manager|gui) exec "$PY" -I "$ROOT/tools/brick-manager.py" ;;
   reset) exec "$S/make-emmc.sh" ;;
   *) sed -n 2,11p "$0" ;;
 esac

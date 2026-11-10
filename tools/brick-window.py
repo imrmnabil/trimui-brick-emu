@@ -20,7 +20,6 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib
 import cairo
-import numpy as np
 
 # ---------------------------------------------------------------- buttons
 # name: (evdev keycode, X keysym) - the host keys brick-hw maps (see brick-hw.c)
@@ -189,7 +188,7 @@ class VNC(threading.Thread):
 
     def alloc(self, w, h):
         self.w, self.h = w, h
-        self.fb = np.zeros((h, w, 4), dtype=np.uint8)
+        self.fb = bytearray(w * h * 4)
         self.on_resize(w, h, self.fb)
 
     def run(self):
@@ -233,8 +232,15 @@ class VNC(threading.Thread):
                     for _ in range(nr):
                         x, y, rw, rh, enc = struct.unpack('>HHHHi', self.rx(12))
                         if enc == 0:
-                            data = np.frombuffer(self.rx(rw * rh * 4), dtype=np.uint8).reshape(rh, rw, 4)
-                            self.fb[y:y + rh, x:x + rw] = data
+                            data = self.rx(rw * rh * 4)
+                            row, stride = rw * 4, self.w * 4
+                            if x == 0 and rw == self.w:      # full-width: one copy
+                                self.fb[y * stride:(y + rh) * stride] = data
+                            else:
+                                fb, o = self.fb, y * stride + x * 4
+                                for r in range(rh):
+                                    fb[o:o + row] = data[r * row:(r + 1) * row]
+                                    o += stride
                             self.pixel_rects += 1
                         elif enc == -223:
                             self.alloc(rw, rh)
@@ -317,7 +323,7 @@ class BrickWindow(Gtk.Window):
         def apply():
             stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_RGB24, w)
             assert stride == w * 4
-            self.img = cairo.ImageSurface.create_for_data(memoryview(fb).cast('B'), cairo.FORMAT_RGB24, w, h, stride)
+            self.img = cairo.ImageSurface.create_for_data(fb, cairo.FORMAT_RGB24, w, h, stride)
             self.message = None
             return False
         GLib.idle_add(apply)
@@ -489,6 +495,8 @@ class BrickWindow(Gtk.Window):
         self.draw_screen(cr)
         self.draw_controls(cr)
         # close button: always faintly visible, red on hover
+        if not getattr(self, 'show_close', True):
+            return True
         x, y, r = CLOSE_BTN
         cr.new_path()
         cr.arc(x, y, r, 0, 2 * math.pi)

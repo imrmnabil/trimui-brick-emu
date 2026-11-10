@@ -19,7 +19,11 @@
 #   --no-wifi       the simulated access point is off (the Brick finds no network)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/out"
+# user data (images, sockets) and the read-only emulator assets (kernel,
+# additions disk) - separate in the AppImage, both in out/ in a source tree
+OUT="${BRICK_DATA:-$ROOT}/out"
+ASSETS="${BRICK_ASSETS:-$OUT}"
+PY="${BRICK_PYTHON:-python3}"
 SD=""; GPU=soft; DISPLAY_MODE=""; EMMC=""; HEADLESS=0; MONITOR=""; LOG=""; NET=1; SCALE=""; SERSOCK=""; SHELLSOCK="$OUT/run/shell.sock"; AGENTSOCK="$OUT/run/agent.sock"; COLOR=${BRICK_SKIN_COLOR:-black}
 WIFI=1; WIFI_SSID=${BRICK_WIFI_SSID:-BrickNet}; WIFI_PASS=${BRICK_WIFI_PASS-brick1234}
 while [ $# -gt 0 ]; do
@@ -46,7 +50,7 @@ while [ $# -gt 0 ]; do
 done
 SD=${SD:-$OUT/sdcard.img}
 EMMC=${EMMC:-$OUT/emmc.img}
-for f in "$OUT/Image" "$EMMC" "$OUT/brick-emu.img"; do
+for f in "$ASSETS/Image" "$EMMC" "$ASSETS/brick-emu.img"; do
   [ -f "$f" ] || { echo "missing $f - run ./brick setup first"; exit 1; }
 done
 
@@ -57,21 +61,21 @@ CMDLINE+=" ${BRICK_CMDLINE_EXTRA:-} snd_hda_intel.id=audiocodec gpio_mockup.gpio
 args=(
   -name "TrimUI Brick"
   -M virt -cpu cortex-a53 -smp 4 -m 1024 -accel tcg,thread=multi,tb-size=512
-  -kernel "$OUT/Image" -append "$CMDLINE"
+  -kernel "$ASSETS/Image" -append "$CMDLINE"
   # eMMC (mmcblk0) and SD card slot (mmcblk1), real SD/MMC protocol over SDHCI
   -device sdhci-pci,id=emmc-host,addr=0x5
   -drive if=none,id=emmc,file="$EMMC",format=raw
   -device sd-card,drive=emmc,bus=/gpex-pcihost/pcie.0/emmc-host/sd-bus
   -device sdhci-pci,id=sd-host,addr=0x6
   # emulator additions (Mesa + EGL shim), read-only
-  -drive if=none,id=emu,file="$OUT/brick-emu.img",format=raw,readonly=on
+  -drive if=none,id=emu,file="$ASSETS/brick-emu.img",format=raw,readonly=on
   -device virtio-blk-pci,drive=emu,addr=0x7
   -device virtio-keyboard-pci
   -device qemu-xhci -device usb-tablet
 )
 # simulated Wi-Fi settings for the guest's access point (guest/files/bin/wifi-ap):
 # hex SSID + WPA2 PSK derived here, so no character can break the guest side
-WIFI_CFG=$(python3 -I -c '
+WIFI_CFG=$("$PY" -I -c '
 import hashlib, sys
 ssid, pw = sys.argv[1].encode(), sys.argv[2].encode()
 if not 1 <= len(ssid) <= 32: sys.exit("Wi-Fi network name must be 1-32 bytes")
@@ -80,7 +84,8 @@ print("ssid=" + ssid.hex() + (" psk=" + hashlib.pbkdf2_hmac("sha1", pw, ssid, 40
 ' "$WIFI_SSID" "$WIFI_PASS") || exit 1
 args+=(-fw_cfg "name=opt/brick/wifi,string=enabled=$WIFI $WIFI_CFG")
 if [ $WIFI = 1 ]; then
-  echo "Wi-Fi: network \"$WIFI_SSID\", ${WIFI_PASS:+password \"$WIFI_PASS\"}${WIFI_PASS:-open (no password)}" >&2
+  if [ -n "$WIFI_PASS" ]; then echo "Wi-Fi: network \"$WIFI_SSID\", password \"$WIFI_PASS\"" >&2
+  else echo "Wi-Fi: network \"$WIFI_SSID\", open (no password)" >&2; fi
 fi
 if [ -f "$SD" ]; then
   args+=(-drive if=none,id=sd,file="$SD",format=raw -device sd-card,drive=sd,bus=/gpex-pcihost/pcie.0/sd-host/sd-bus)
@@ -104,7 +109,7 @@ mkdir -p "$OUT/run"
 [ -n "$MONITOR" ] || { MONITOR="$OUT/run/mon.sock"; rm -f "$MONITOR"; }
 DESKTOP=0; { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } && DESKTOP=1
 free_port() {  # first free local TCP port from $1
-  python3 -I -c '
+  "$PY" -I -c '
 import socket, sys
 for p in range(int(sys.argv[1]), int(sys.argv[1]) + 100):
     s = socket.socket()
@@ -117,7 +122,7 @@ for p in range(int(sys.argv[1]), int(sys.argv[1]) + 100):
 }
 if [ -z "$DISPLAY_MODE" ]; then
   if [ $DESKTOP = 0 ]; then DISPLAY_MODE=vnc
-  elif python3 -I -c 'import gi, cairo, numpy; gi.require_version("Gtk", "3.0")' 2>/dev/null; then DISPLAY_MODE=skin
+  elif "$PY" -I -c 'import gi, cairo; gi.require_version("Gtk", "3.0")' 2>/dev/null; then DISPLAY_MODE=skin
   # NVIDIA's proprietary driver: QEMU's GTK GL window stays black (Wayland) or
   # aborts (X11), while GPU rendering itself works -> render offscreen
   # (egl-headless) and show it through a local VNC viewer.
@@ -135,7 +140,7 @@ elif [ "$DISPLAY_MODE" = vnc ] || [ "$DISPLAY_MODE" = skin ]; then
   args+=(-vnc 127.0.0.1:$((VNC_PORT - 5900)))
   if [ "$DISPLAY_MODE" = skin ]; then
     # closing the window quits QEMU through the monitor
-    python3 -I "$ROOT/tools/brick-window.py" --vnc 127.0.0.1:$VNC_PORT --monitor "$MONITOR" \
+    "$PY" -I "$ROOT/tools/brick-window.py" --vnc 127.0.0.1:$VNC_PORT --monitor "$MONITOR" \
       --color "$COLOR" ${SCALE:+--scale "$SCALE"} </dev/null >/dev/null 2>"$OUT/run/window.log" &
   else
     echo "screen is on VNC at 127.0.0.1:$VNC_PORT" >&2
@@ -145,7 +150,7 @@ elif [ "$DISPLAY_MODE" = vnc ] || [ "$DISPLAY_MODE" = skin ]; then
       ( for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$VNC_PORT) 2>/dev/null && break; sleep 0.1; done
         vncviewer -Shared -AcceptClipboard=0 -SendClipboard=0 -SetPrimary=0 -RemoteResize=0 \
           -ReconnectOnError=0 -Log '*:stderr:0' 127.0.0.1::$VNC_PORT || true
-        [ -S "$MONITOR" ] && python3 -I "$ROOT/tools/qmon.py" "$MONITOR" quit ) </dev/null >/dev/null 2>&1 &
+        [ -S "$MONITOR" ] && "$PY" -I "$ROOT/tools/qmon.py" "$MONITOR" quit ) </dev/null >/dev/null 2>&1 &
     fi
   fi
 elif [ "$DISPLAY_MODE" = sdl ]; then
