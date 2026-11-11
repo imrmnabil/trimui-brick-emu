@@ -155,8 +155,11 @@ network.
 - **The emulated Brick needs about 1 GB of RAM** on top of your desktop.
   If RAM runs short it gets swapped out and seems to freeze, so close some
   browser tabs.
-- **Not reproduced:** Bluetooth, suspend, the LEDs (their state is stored but
-  not shown) and rumble.
+- **Sleep is simulated.** When the firmware or NextUI puts the Brick to sleep,
+  it stays asleep until you press the power button (the side button, or `P`),
+  but the PC doesn't actually suspend it.
+- **Not reproduced:** Bluetooth, the LEDs (their state is stored but not shown)
+  and rumble.
 - **Stock OTA updates** work, but run System → Update afterwards.
 
 ## License

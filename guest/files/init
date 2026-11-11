@@ -2,6 +2,9 @@
 # Emulator additions init, run by the rootfs preinit hook (85_brick_emu) right
 # after /brick-emu is mounted. Keep it quick: preinit waits for it.
 B=/brick-emu/bin
+# light the panel: there is no fbcon, so nothing else sets the display mode
+# before the firmware's UI starts drawing into /dev/fb0
+echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
 # command channel for the host tools (manager): raw console -> non-interactive sh
 [ -c /dev/hvc2 ] && $B/brick-agent /dev/hvc2
 # simulated Wi-Fi: hide eth0 + the access-point radio before netifd starts,

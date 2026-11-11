@@ -16,6 +16,10 @@
  *  - axp2202-battery / axp2202-usb / AC power supplies.
  *  - /sys/class/{led_anim,motor,speaker} attribute stubs.
  *  - /dev/disp stub that answers the sunxi disp2 ioctls the firmware uses.
+ *  - Emulated sleep: /sys/power/state is replaced so that "mem" (NextUI's
+ *    deep sleep, the stock firmware's suspend) blocks until the power key is
+ *    pressed, like a real suspend/resume, instead of really suspending the
+ *    guest - a suspended QEMU guest has no wakeup source and never returns.
  */
 
 #include <linux/module.h>
@@ -33,6 +37,9 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
+#include <linux/wait.h>
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
 #include <linux/brick-hw.h>
 
 /* ------------------------------------------------------------------ */
@@ -193,9 +200,34 @@ static const struct keymap_ent keymap[] = {
 	{ BTN_THUMBL, BB_F1 }, { BTN_THUMBR, BB_F2 },
 };
 
+/* emulated sleep (see brick_sleep_store) */
+static DECLARE_WAIT_QUEUE_HEAD(sleep_wq);
+static DEFINE_SPINLOCK(sleep_lock);
+static int sleepers;		/* tasks sleeping in /sys/power/state */
+static unsigned long wake_seq;	/* bumped by each waking power press */
+static bool swallow_release;	/* hide the waking press from userspace */
+
 static void brick_button(int btn, bool pressed)
 {
 	if (btn == BB_POWER) {
+		unsigned long flags;
+		bool hide = false;
+
+		spin_lock_irqsave(&sleep_lock, flags);
+		if (pressed && sleepers) {
+			/* the press wakes the Brick; like the real PMIC wake it is not a key event */
+			wake_seq++;
+			swallow_release = true;
+			hide = true;
+		} else if (!pressed && swallow_release) {
+			swallow_release = false;
+			hide = true;
+		}
+		spin_unlock_irqrestore(&sleep_lock, flags);
+		if (hide) {
+			wake_up_all(&sleep_wq);
+			return;
+		}
 		input_report_key(pek_dev, KEY_POWER, pressed);
 		input_sync(pek_dev);
 		return;
@@ -547,6 +579,52 @@ static struct miscdevice disp_misc = {
 };
 
 /* ------------------------------------------------------------------ */
+/* Emulated sleep: /sys/power/state                                    */
+/* ------------------------------------------------------------------ */
+
+static ssize_t brick_sleep_show(struct kobject *kobj, struct kobj_attribute *attr,
+				char *buf)
+{
+	return sysfs_emit(buf, "freeze mem\n");
+}
+
+static ssize_t brick_sleep_store(struct kobject *kobj, struct kobj_attribute *attr,
+				 const char *buf, size_t n)
+{
+	unsigned long seq;
+	int err;
+
+	if (!sysfs_streq(buf, "mem") && !sysfs_streq(buf, "freeze") &&
+	    !sysfs_streq(buf, "standby"))
+		return -EINVAL;
+	spin_lock_irq(&sleep_lock);
+	sleepers++;
+	seq = wake_seq;
+	spin_unlock_irq(&sleep_lock);
+	pr_info("brick-hw: sleeping until the power key is pressed\n");
+	err = wait_event_killable(sleep_wq, READ_ONCE(wake_seq) != seq);
+	spin_lock_irq(&sleep_lock);
+	sleepers--;
+	spin_unlock_irq(&sleep_lock);
+	if (err)
+		return err;
+	pr_info("brick-hw: woken by the power key\n");
+	return n;
+}
+
+static struct kobj_attribute brick_sleep_attr =
+	__ATTR(state, 0644, brick_sleep_show, brick_sleep_store);
+
+static int __init brick_sleep_init(void)
+{
+	if (!power_kobj)
+		return -ENODEV;
+	/* drop the kernel's own "state" (removal goes by name) and take its place */
+	sysfs_remove_file(power_kobj, &brick_sleep_attr.attr);
+	return sysfs_create_file(power_kobj, &brick_sleep_attr.attr);
+}
+
+/* ------------------------------------------------------------------ */
 
 static int __init brick_hw_init(void)
 {
@@ -573,6 +651,9 @@ static int __init brick_hw_init(void)
 	err = misc_register(&disp_misc);
 	if (err)
 		pr_warn("brick-hw: /dev/disp failed: %d\n", err);
+	err = brick_sleep_init();
+	if (err)
+		pr_warn("brick-hw: emulated sleep failed: %d\n", err);
 	pr_info("brick-hw: TrimUI Brick hardware personality ready\n");
 	return 0;
 }

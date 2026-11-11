@@ -64,3 +64,11 @@ install -D -m 0644 packaging/trimui-brick-emu.png %{buildroot}%{_datadir}/icons/
 %{_datadir}/%{name}
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/256x256/apps/%{name}.png
+
+%changelog
+* Wed Nov 11 2026 Rahat Morshed Nabil <imrmnabil@gmail.com> - 0.1.1-1
+- Fix the black screen in GPU (virgl) mode: switch the display on at boot
+- Simulate sleep: the Brick wakes with the power button instead of freezing
+
+* Tue Nov 10 2026 Rahat Morshed Nabil <imrmnabil@gmail.com> - 0.1.0-1
+- First release

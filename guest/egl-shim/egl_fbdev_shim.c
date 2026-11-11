@@ -55,6 +55,8 @@
 #define GL_PACK_ROW_LENGTH 0x0D02
 #endif
 
+#define DRM_IOCTL_DROP_MASTER_ _IO('d', 0x1f)
+
 #define EMU_DIR "/brick-emu"
 #define MESA_DIR EMU_DIR "/mesa"
 #define MESA_EGL MESA_DIR "/libEGL_glvnd.so.1"
@@ -135,9 +137,19 @@ static int gbm_init(void)
 	G(bo_unmap, "gbm_bo_unmap");
 	if (!gbm.create_device || !gbm.bo_map)
 		return -1;
-	gbm.fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
-	if (gbm.fd < 0)
-		return -1;
+	/*
+	 * Render node: rendering needs no modesetting rights.  Opening the primary
+	 * node would make this process DRM master, and then the kernel's fbdev
+	 * emulation - which shows our frames - may never set a mode: the panel
+	 * stays off ("Display output is not active").
+	 */
+	gbm.fd = open("/dev/dri/renderD128", O_RDWR | O_CLOEXEC);
+	if (gbm.fd < 0) {
+		gbm.fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+		if (gbm.fd < 0)
+			return -1;
+		ioctl(gbm.fd, DRM_IOCTL_DROP_MASTER_, 0);	/* see above */
+	}
 	gbm.dev = gbm.create_device(gbm.fd);
 	if (!gbm.dev) {
 		close(gbm.fd);
@@ -228,6 +240,8 @@ static int fb_open(void)
 		fb.fd = -1;
 		return -1;
 	}
+	/* light the panel: without fbcon nothing else sets the fbdev mode */
+	ioctl(fb.fd, FBIOBLANK, FB_BLANK_UNBLANK);
 	LOG("fb0 %ux%u bpp %u stride %u\n", fb.var.xres, fb.var.yres, fb.var.bits_per_pixel, fb.fix.line_length);
 	return 0;
 }
